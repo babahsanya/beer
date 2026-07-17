@@ -1,0 +1,880 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useState, useEffect, useCallback, useMemo } from "react";
+     4→     4→import { AnimatePresence, motion } from "framer-motion";
+     5→     5→import { useTheme } from "next-themes";
+     6→     6→import { useBeerStore } from "@/store/beer-store";
+     7→     7→import { useToast } from "@/hooks/use-toast";
+     8→     8→import { SearchBar } from "@/components/beer/search-bar";
+     9→     9→import { BeerCard } from "@/components/beer/beer-card";
+    10→    10→import { BeerDetail } from "@/components/beer/beer-detail";
+    11→    11→import { TrendingList } from "@/components/beer/trending-list";
+    12→    12→import { HistoryList } from "@/components/beer/history-list";
+    13→    13→import { FavoritesGrid } from "@/components/beer/favorites-grid";
+    14→    14→import { PhotoRecognizer } from "@/components/beer/photo-recognizer";
+    15→    15→import { BackButton } from "@/components/beer/back-button";
+    16→    16→import { EmptyState } from "@/components/beer/empty-state";
+    17→    17→import {
+    18→    18→  Select,
+    19→    19→  SelectContent,
+    20→    20→  SelectItem,
+    21→    21→  SelectTrigger,
+    22→    22→  SelectValue,
+    23→    23→} from "@/components/ui/select";
+    24→    24→import { StyleExplorer } from "@/components/beer/style-explorer";
+    25→    25→import { CompareView } from "@/components/beer/compare-view";
+    26→    26→import { ScrollToTop } from "@/components/beer/scroll-to-top";
+    27→    27→import { RandomBeerButton } from "@/components/beer/random-beer-button";
+    28→    28→import { QuickStats } from "@/components/beer/quick-stats";
+    29→    29→import { Skeleton } from "@/components/ui/skeleton";
+    30→    30→import { Button } from "@/components/ui/button";
+    31→    31→import { Card, CardContent } from "@/components/ui/card";
+    32→    32→import { Slider } from "@/components/ui/slider";
+    33→    33→import {
+    34→    34→  Popover,
+    35→    35→  PopoverContent,
+    36→    36→  PopoverTrigger,
+    37→    37→} from "@/components/ui/popover";
+    38→    38→import { getStyleInfo } from "@/lib/style-info";
+    39→    39→import Image from "next/image";
+    40→    40→import {
+    41→    41→  Search,
+    42→    42→  Camera,
+    43→    43→  TrendingUp,
+    44→    44→  Star,
+    45→    45→  Clock,
+    46→    46→  ChevronRight,
+    47→    47→  LayoutGrid,
+    48→    48→  ArrowLeftRight,
+    49→    49→  Sun,
+    50→    50→  Moon,
+    51→    51→  Filter,
+    52→    52→  Eye,
+    53→    53→  Download,
+    54→    54→} from "lucide-react";
+    55→    55→import type { Beer, SearchHistory } from "@/types/beer";
+    56→    56→
+    57→    57→const styleChips = [
+    58→    58→  "IPA", "Stout", "Lager", "Wheat Beer", "Porter", "Sour",
+    59→    59→  "Pilsner", "Belgian", "Pale Ale", "Amber Ale", "Brown Ale", "Barleywine",
+    60→    60→];
+    61→    61→
+    62→    62→function ThemeToggle() {
+    63→    63→  const { resolvedTheme, setTheme } = useTheme();
+    64→    64→
+    65→    65→  return (
+    66→    66→    <button
+    67→    67→      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+    68→    68→      className="fixed top-4 right-4 z-50 h-10 w-10 rounded-full glass-card flex items-center justify-center text-amber-600 dark:text-amber-400 hover:scale-110 transition-transform duration-200 shadow-lg"
+    69→    69→      aria-label="Переключить тему"
+    70→    70→    >
+    71→    71→      {resolvedTheme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+    72→    72→    </button>
+    73→    73→  );
+    74→    74→}
+    75→    75→
+    76→    76→const pageVariants = {
+    77→    77→  initial: { opacity: 0, y: 12 },
+    78→    78→  animate: { opacity: 1, y: 0 },
+    79→    79→  exit: { opacity: 0, y: -12 },
+    80→    80→};
+    81→    81→
+    82→    82→export default function Home() {
+    83→    83→  const {
+    84→    84→    currentView,
+    85→    85→    searchQuery,
+    86→    86→    setSearchQuery,
+    87→    87→    setSearchResults,
+    88→    88→    selectBeer,
+    89→    89→    setView,
+    90→    90→    setLoading,
+    91→    91→    compareBeers,
+    92→    92→    setShowCompare,
+    93→    93→  } = useBeerStore();
+    94→    94→  const { toast } = useToast();
+    95→    95→
+    96→    96→  // Search
+    97→    97→  const [searchLoading, setSearchLoading] = useState(false);
+    98→    98→  const [searchResults, setSearchResultsLocal] = useState<Beer[]>([]);
+    99→    99→  const [searchTotal, setSearchTotal] = useState(0);
+   100→   100→  const [searchOffset, setSearchOffset] = useState(0);
+   101→   101→  const [sortBy, setSortBy] = useState("rating");
+   102→   102→  const searchLimit = 20;
+   103→   103→
+   104→   104→  // ABV filter state
+   105→   105→  const [abvRange, setAbvRange] = useState<[number, number]>([0, 15]);
+   106→   106→  const [showFilters, setShowFilters] = useState(false);
+   107→   107→
+   108→   108→  // Sorted search results
+   109→   109→  const sortedResults = useMemo(() => {
+   110→   110→    const results = [...searchResults].filter(
+   111→   111→      (b) => b.abv >= abvRange[0] && b.abv <= abvRange[1]
+   112→   112→    );
+   113→   113→    if (sortBy === "rating") {
+   114→   114→      results.sort((a, b) => b.rating - a.rating);
+   115→   115→    } else if (sortBy === "abv") {
+   116→   116→      results.sort((a, b) => b.abv - a.abv);
+   117→   117→    } else if (sortBy === "checkins") {
+   118→   118→      results.sort((a, b) => b.totalCheckins - a.totalCheckins);
+   119→   119→    }
+   120→   120→    return results;
+   121→   121→  }, [searchResults, sortBy, abvRange]);
+   122→   122→
+   123→   123→  // Home history
+   124→   124→  const [recentHistory, setRecentHistory] = useState<SearchHistory[]>([]);
+   125→   125→  const [recentViews, setRecentViews] = useState<Array<{ beerId: string; beer: Beer }>>([]);
+   126→   126→  const [historyLoading, setHistoryLoading] = useState(false);
+   127→   127→
+   128→   128→  const doSearch = useCallback(
+   129→   129→    async (query?: string, offset = 0) => {
+   130→   130→      const q = query ?? searchQuery;
+   131→   131→      if (!q.trim()) return;
+   132→   132→      setSearchLoading(true);
+   133→   133→      try {
+   134→   134→        const res = await fetch(
+   135→   135→          `/api/beers/search?q=${encodeURIComponent(q)}&limit=${searchLimit}&offset=${offset}`
+   136→   136→        );
+   137→   137→        if (!res.ok) throw new Error("Ошибка поиска");
+   138→   138→        const data = await res.json();
+   139→   139→        const beers: Beer[] = data.beers || [];
+   140→   140→        if (offset === 0) {
+   141→   141→          setSearchResultsLocal(beers);
+   142→   142→        } else {
+   143→   143→          setSearchResultsLocal((prev) => [...prev, ...beers]);
+   144→   144→        }
+   145→   145→        setSearchTotal(data.pagination?.total || data.total || 0);
+   146→   146→        setSearchOffset(offset);
+   147→   147→        setSearchResults(beers, data.total || 0);
+   148→   148→        if (offset === 0) setView("search");
+   149→   149→      } catch {
+   150→   150→        toast({
+   151→   151→          title: "Ошибка",
+   152→   152→          description: "Не удалось выполнить поиск",
+   153→   153→          variant: "destructive",
+   154→   154→        });
+   155→   155→      } finally {
+   156→   156→        setSearchLoading(false);
+   157→   157→      }
+   158→   158→    },
+   159→   159→    [searchQuery, setView, setSearchResults, toast]
+   160→   160→  );
+   161→   161→
+   162→   162→  const handleSearchAction = () => {
+   163→   163→    if (searchQuery.trim()) {
+   164→   164→      doSearch();
+   165→   165→    }
+   166→   166→  };
+   167→   167→
+   168→   168→  const loadMoreResults = () => {
+   169→   169→    doSearch(searchQuery, searchOffset + searchLimit);
+   170→   170→  };
+   171→   171→
+   172→   172→  // Search by style (from StyleExplorer)
+   173→   173→  const handleSearchStyle = (styleName: string) => {
+   174→   174→    setSearchQuery(styleName);
+   175→   175→    doSearch(styleName);
+   176→   176→  };
+   177→   177→
+   178→   178→  const handleStyleChipClick = (styleName: string) => {
+   179→   179→    setSearchQuery(styleName);
+   180→   180→    doSearch(styleName);
+   181→   181→  };
+   182→   182→
+   183→   183→  // Fetch recent history for home screen
+   184→   184→  const fetchRecentHistory = useCallback(async () => {
+   185→   185→    try {
+   186→   186→      setHistoryLoading(true);
+   187→   187→      const res = await fetch("/api/history");
+   188→   188→      if (res.ok) {
+   189→   189→        const data = await res.json();
+   190→   190→        setRecentHistory(
+   191→   191→          (Array.isArray(data.history) ? data.history : Array.isArray(data) ? data : []).slice(0, 5)
+   192→   192→        );
+   193→   193→      }
+   194→   194→    } catch {
+   195→   195→      // ignore
+   196→   196→    } finally {
+   197→   197→      setHistoryLoading(false);
+   198→   198→    }
+   199→   199→  }, []);
+   200→   200→
+   201→   201→  // Fetch recently viewed beers
+   202→   202→  const fetchRecentViews = useCallback(async () => {
+   203→   203→    try {
+   204→   204→      const res = await fetch("/api/recent");
+   205→   205→      if (res.ok) {
+   206→   206→        const data = await res.json();
+   207→   207→        setRecentViews(Array.isArray(data) ? data : []);
+   208→   208→      }
+   209→   209→    } catch { /* ignore */ }
+   210→   210→  }, []);
+   211→   211→
+   212→   212→  useEffect(() => {
+   213→   213→    if (currentView === "home") {
+   214→   214→      fetchRecentHistory();
+   215→   215→      fetchRecentViews();
+   216→   216→    }
+   217→   217→  }, [currentView, fetchRecentHistory, fetchRecentViews]);
+   218→   218→
+   219→   219→  // Global keyboard shortcut: Ctrl+K / Cmd+K to focus search
+   220→   220→  useEffect(() => {
+   221→   221→    const handleKeyDown = (e: KeyboardEvent) => {
+   222→   222→      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+   223→   223→        e.preventDefault();
+   224→   224→        const input = document.querySelector<HTMLInputElement>(
+   225→   225→          'input[placeholder*="пиво"]'
+   226→   226→        );
+   227→   227→        input?.focus();
+   228→   228→      }
+   229→   229→      // Escape to go home
+   230→   230→      if (e.key === "Escape" && currentView !== "home" && currentView !== "detail") {
+   231→   231→        setView("home");
+   232→   232→      }
+   233→   233→    };
+   234→   234→    window.addEventListener("keydown", handleKeyDown);
+   235→   235→    return () => window.removeEventListener("keydown", handleKeyDown);
+   236→   236→  }, [currentView, setView]);
+   237→   237→
+   238→   238→  const handleHistoryClick = (query: string) => {
+   239→   239→    setSearchQuery(query);
+   240→   240→    doSearch(query);
+   241→   241→  };
+   242→   242→
+   243→   243→  // Action cards for home screen
+   244→   244→  const actionCards = [
+   245→   245→    {
+   246→   246→      icon: <Search className="h-6 w-6" />,
+   247→   247→      emoji: "🔍",
+   248→   248→      title: "Поиск по названию",
+   249→   249→      subtitle: "Найдите пиво в базе",
+   250→   250→      action: () => {
+   251→   251→        const input = document.querySelector<HTMLInputElement>(
+   252→   252→          'input[placeholder*="пиво"]'
+   253→   253→        );
+   254→   254→        input?.focus();
+   255→   255→      },
+   256→   256→      color: "from-amber-400 to-amber-600",
+   257→   257→    },
+   258→   258→    {
+   259→   259→      icon: <Camera className="h-6 w-6" />,
+   260→   260→      emoji: "📸",
+   261→   261→      title: "Распознать по фото",
+   262→   262→      subtitle: "Фото этикетки → пиво",
+   263→   263→      action: () => setView("recognize"),
+   264→   264→      color: "from-orange-400 to-orange-600",
+   265→   265→    },
+   266→   266→    {
+   267→   267→      icon: <TrendingUp className="h-6 w-6" />,
+   268→   268→      emoji: "🔥",
+   269→   269→      title: "Тренды сегодня",
+   270→   270→      subtitle: "Популярное сейчас",
+   271→   271→      action: () => setView("trending"),
+   272→   272→      color: "from-red-400 to-red-600",
+   273→   273→    },
+   274→   274→    {
+   275→   275→      icon: <Star className="h-6 w-6" />,
+   276→   276→      emoji: "⭐",
+   277→   277→      title: "Избранное",
+   278→   278→      subtitle: "Ваша коллекция",
+   279→   279→      action: () => setView("favorites"),
+   280→   280→      color: "from-yellow-400 to-yellow-600",
+   281→   281→    },
+   282→   282→  ];
+   283→   283→
+   284→   284→  const exportCSV = () => {
+   285→   285→    if (sortedResults.length === 0) return;
+   286→   286→    const headers = ["Название", "Стиль", "ABV", "IBU", "Страна", "Пивоварня", "Рейтинг", "Чекинов"];
+   287→   287→    const rows = sortedResults.map(b => [
+   288→   288→      b.name, b.style, b.abv, b.ibu, b.country, b.brewery, b.rating, b.totalCheckins
+   289→   289→    ]);
+   290→   290→    const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+   291→   291→    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+   292→   292→    const url = URL.createObjectURL(blob);
+   293→   293→    const a = document.createElement("a");
+   294→   294→    a.href = url;
+   295→   295→    a.download = `beers_${searchQuery || "export"}.csv`;
+   296→   296→    a.click();
+   297→   297→    URL.revokeObjectURL(url);
+   298→   298→    toast({ title: "Экспорт завершён", description: `${sortedResults.length} сортов сохранено в CSV` });
+   299→   299→  };
+   300→   300→
+   301→   301→  const extraActionCards = [
+   302→   302→    {
+   303→   303→      icon: <LayoutGrid className="h-6 w-6" />,
+   304→   304→      emoji: "📋",
+   305→   305→      title: "Каталог стилей",
+   306→   306→      subtitle: "Все стили пива",
+   307→   307→      action: () => setView("styles"),
+   308→   308→      color: "from-emerald-400 to-emerald-600",
+   309→   309→    },
+   310→   310→  ];
+   311→   311→
+   312→   312→  return (
+   313→   313→    <>
+   314→   314→      <ThemeToggle />
+   315→   315→      <main className="min-h-screen flex flex-col pb-20">
+   316→   316→      <div className="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-8">
+   317→   317→        <AnimatePresence mode="wait">
+   318→   318→          {/* ===== HOME VIEW ===== */}
+   319→   319→          {currentView === "home" && (
+   320→   320→            <motion.div
+   321→   321→              key="home"
+   322→   322→              variants={pageVariants}
+   323→   323→              initial="initial"
+   324→   324→              animate="animate"
+   325→   325→              exit="exit"
+   326→   326→              transition={{ duration: 0.3 }}
+   327→   327→              className="space-y-6 sm:space-y-8"
+   328→   328→            >
+   329→   329→              {/* Hero */}
+   330→   330→              <div className="relative text-center space-y-4">
+   331→   331→                <div className="hero-gradient -m-4 sm:-m-8 -mt-6 sm:-mt-8 py-12 sm:py-16 px-4 rounded-b-3xl">
+   332→   332→                  <div className="beer-pulse inline-flex items-center justify-center h-20 w-20 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-xl shadow-amber-300/40 dark:shadow-amber-900/40">
+   333→   333→                    <span className="text-4xl">🍺</span>
+   334→   334→                  </div>
+   335→   335→                  <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight mt-4">
+   336→   336→                    Beer
+   337→   337→                    <span className="beer-gradient-text">ID</span>
+   338→   338→                  </h1>
+   339→   339→                  <p className="text-muted-foreground text-sm sm:text-base max-w-md mx-auto">
+   340→   340→                    Пивной справочник — ищите по названию, распознавайте по фото,
+   341→   341→                    изучайте рейтинги и отзывы
+   342→   342→                  </p>
+   343→   343→                  <div className="mt-3 inline-flex items-center rounded-full bg-white/60 dark:bg-stone-700/60 backdrop-blur-sm border border-amber-200 dark:border-amber-800/40 px-4 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-300">
+   344→   344→                    35+ сортов пива • 10+ стран • 124 отзыва
+   345→   345→                  </div>
+   346→   346→                </div>
+   347→   347→              </div>
+   348→   348→
+   349→   349→              {/* Search */}
+   350→   350→              <SearchBar
+   351→   351→                value={searchQuery}
+   352→   352→                onChange={(val) => setSearchQuery(val)}
+   353→   353→                onSearch={handleSearchAction}
+   354→   354→                autoFocus={false}
+   355→   355→              />
+   356→   356→
+   357→   357→              {/* Random Beer Button */}
+   358→   358→              <RandomBeerButton />
+   359→   359→
+   360→   360→              {/* Action Cards - 2 rows of 2 + extra card */}
+   361→   361→              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+   362→   362→                {actionCards.map((card) => (
+   363→   363→                  <motion.div
+   364→   364→                    key={card.title}
+   365→   365→                    whileHover={{ scale: 1.03, y: -2 }}
+   366→   366→                    whileTap={{ scale: 0.97 }}
+   367→   367→                  >
+   368→   368→                    <Card
+   369→   369→                      className="cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl hover:shadow-lg hover:shadow-amber-200/30 dark:hover:shadow-amber-900/20 transition-all duration-200 h-full"
+   370→   370→                      onClick={card.action}
+   371→   371→                    >
+   372→   372→                      <CardContent className="p-4 flex flex-col items-center text-center gap-2">
+   373→   373→                        <div
+   374→   374→                          className={`h-12 w-12 rounded-xl bg-gradient-to-br ${card.color} flex items-center justify-center text-white shadow-md`}
+   375→   375→                        >
+   376→   376→                          {card.icon}
+   377→   377→                        </div>
+   378→   378→                        <div>
+   379→   379→                          <p className="font-semibold text-sm text-foreground">
+   380→   380→                            {card.title}
+   381→   381→                          </p>
+   382→   382→                          <p className="text-xs text-muted-foreground mt-0.5">
+   383→   383→                            {card.subtitle}
+   384→   384→                          </p>
+   385→   385→                        </div>
+   386→   386→                      </CardContent>
+   387→   387→                    </Card>
+   388→   388→                  </motion.div>
+   389→   389→                ))}
+   390→   390→                {/* Extra cards (5th card: Style Catalog) */}
+   391→   391→                {extraActionCards.map((card) => (
+   392→   392→                  <motion.div
+   393→   393→                    key={card.title}
+   394→   394→                    whileHover={{ scale: 1.03, y: -2 }}
+   395→   395→                    whileTap={{ scale: 0.97 }}
+   396→   396→                    className="sm:col-span-1 col-span-2 sm:col-span-1"
+   397→   397→                  >
+   398→   398→                    <Card
+   399→   399→                      className="cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl hover:shadow-lg hover:shadow-amber-200/30 dark:hover:shadow-amber-900/20 transition-all duration-200 h-full"
+   400→   400→                      onClick={card.action}
+   401→   401→                    >
+   402→   402→                      <CardContent className="p-4 flex flex-col items-center text-center gap-2">
+   403→   403→                        <div
+   404→   404→                          className={`h-12 w-12 rounded-xl bg-gradient-to-br ${card.color} flex items-center justify-center text-white shadow-md`}
+   405→   405→                        >
+   406→   406→                          {card.icon}
+   407→   407→                        </div>
+   408→   408→                        <div>
+   409→   409→                          <p className="font-semibold text-sm text-foreground">
+   410→   410→                            {card.title}
+   411→   411→                          </p>
+   412→   412→                          <p className="text-xs text-muted-foreground mt-0.5">
+   413→   413→                            {card.subtitle}
+   414→   414→                          </p>
+   415→   415→                        </div>
+   416→   416→                      </CardContent>
+   417→   417→                    </Card>
+   418→   418→                  </motion.div>
+   419→   419→                ))}
+   420→   420→              </div>
+   421→   421→
+   422→   422→              {/* Quick Stats */}
+   423→   423→              <QuickStats />
+   424→   424→
+   425→   425→              {/* Style Chips */}
+   426→   426→              <div className="space-y-3">
+   427→   427→                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+   428→   428→                  Стили пива
+   429→   429→                </h2>
+   430→   430→                <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-none">
+   431→   431→                  {styleChips.map((style) => {
+   432→   432→                    const info = getStyleInfo(style);
+   433→   433→                    return (
+   434→   434→                      <Popover key={style}>
+   435→   435→                        <PopoverTrigger asChild>
+   436→   436→                          <button
+   437→   437→                            onClick={() => handleStyleChipClick(style)}
+   438→   438→                            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-200 dark:hover:bg-amber-900/50 hover:border-amber-400 dark:hover:border-amber-600 transition-all duration-200"
+   439→   439→                          >
+   440→   440→                            {info?.emoji && <span className="mr-1">{info.emoji}</span>}
+   441→   441→                            {style}
+   442→   442→                          </button>
+   443→   443→                        </PopoverTrigger>
+   444→   444→                        {info && (
+   445→   445→                          <PopoverContent className="w-64 p-3" side="bottom" align="start">
+   446→   446→                            <div className="space-y-2">
+   447→   447→                              <div className="flex items-center gap-2">
+   448→   448→                                <span className="text-lg">{info.emoji}</span>
+   449→   449→                                <span className="font-semibold text-sm">{info.name}</span>
+   450→   450→                              </div>
+   451→   451→                              <p className="text-xs text-muted-foreground leading-relaxed">{info.description}</p>
+   452→   452→                              <div className="flex gap-3 text-xs text-muted-foreground">
+   453→   453→                                <span>ABV: {info.abvRange}</span>
+   454→   454→                                <span>IBU: {info.ibuRange}</span>
+   455→   455→                              </div>
+   456→   456→                            </div>
+   457→   457→                          </PopoverContent>
+   458→   458→                        )}
+   459→   459→                      </Popover>
+   460→   460→                    );
+   461→   461→                  })}
+   462→   462→                </div>
+   463→   463→              </div>
+   464→   464→
+   465→   465→              {/* Recent History */}
+   466→   466→              {!historyLoading && recentHistory.length > 0 && (
+   467→   467→                <div className="space-y-3">
+   468→   468→                  <div className="flex items-center justify-between">
+   469→   469→                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+   470→   470→                      <Clock className="h-4 w-4" />
+   471→   471→                      Последние поиски
+   472→   472→                    </h2>
+   473→   473→                    <Button
+   474→   474→                      variant="ghost"
+   475→   475→                      size="sm"
+   476→   476→                      onClick={() => setView("history")}
+   477→   477→                      className="text-xs text-amber-600 dark:text-amber-400 gap-1"
+   478→   478→                    >
+   479→   479→                      Все
+   480→   480→                      <ChevronRight className="h-3 w-3" />
+   481→   481→                    </Button>
+   482→   482→                  </div>
+   483→   483→                  <div className="space-y-2">
+   484→   484→                    {recentHistory.map((item) => (
+   485→   485→                      <Card
+   486→   486→                        key={item.id}
+   487→   487→                        className="cursor-pointer border-amber-200/60 dark:border-amber-900/30 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl hover:border-amber-400 transition-colors"
+   488→   488→                        onClick={() => handleHistoryClick(item.query)}
+   489→   489→                      >
+   490→   490→                        <CardContent className="p-3 flex items-center gap-3">
+   491→   491→                          <div className="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+   492→   492→                            <Search className="h-4 w-4 text-amber-500" />
+   493→   493→                          </div>
+   494→   494→                          <div className="min-w-0 flex-1">
+   495→   495→                            <p className="text-sm font-medium text-foreground truncate">
+   496→   496→                              {item.query}
+   497→   497→                            </p>
+   498→   498→                          </div>
+   499→   499→                          <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+   500→   500→                        </CardContent>
+   501→   501→                      </Card>
+   502→   502→                    ))}
+   503→   503→                  </div>
+   504→   504→                </div>
+   505→   505→              )}
+   506→   506→
+   507→   507→              {!historyLoading && recentViews.length > 0 && (
+   508→   508→                <div className="space-y-3">
+   509→   509→                  <div className="flex items-center justify-between">
+   510→   510→                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+   511→   511→                      <Eye className="h-4 w-4" />
+   512→   512→                      Недавно просмотренные
+   513→   513→                    </h2>
+   514→   514→                  </div>
+   515→   515→                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+   516→   516→                    {recentViews.slice(0, 8).map((item) => (
+   517→   517→                      <motion.div
+   518→   518→                        key={item.beerId}
+   519→   519→                        whileHover={{ scale: 1.03 }}
+   520→   520→                        whileTap={{ scale: 0.97 }}
+   521→   521→                        className="shrink-0"
+   522→   522→                      >
+   523→   523→                        <Card
+   524→   524→                          className="cursor-pointer border-amber-200/60 dark:border-amber-900/30 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl hover:border-amber-400 transition-all w-32"
+   525→   525→                          onClick={() => selectBeer(item.beer)}
+   526→   526→                        >
+   527→   527→                          <CardContent className="p-2 flex flex-col items-center text-center gap-1">
+   528→   528→                            <div className="h-10 w-8 rounded-md overflow-hidden bg-amber-50 dark:bg-amber-900/20">
+   529→   529→                              {item.beer?.label ? (
+   530→   530→                                <Image src={item.beer.label} alt={item.beer.name} width={32} height={40} className="object-cover w-full h-full" unoptimized />
+   531→   531→                              ) : (
+   532→   532→                                <div className="flex h-full w-full items-center justify-center text-lg">🍺</div>
+   533→   533→                              )}
+   534→   534→                            </div>
+   535→   535→                            <p className="text-xs font-medium text-foreground truncate w-full">{item.beer?.name}</p>
+   536→   536→                            <div className="flex items-center gap-0.5">
+   537→   537→                              <Star className="h-3 w-3 text-amber-500 fill-amber-500" />
+   538→   538→                              <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold">{item.beer?.rating?.toFixed(1)}</span>
+   539→   539→                            </div>
+   540→   540→                          </CardContent>
+   541→   541→                        </Card>
+   542→   542→                      </motion.div>
+   543→   543→                    ))}
+   544→   544→                  </div>
+   545→   545→                </div>
+   546→   546→              )}
+   547→   547→
+   548→   548→              {historyLoading && (
+   549→   549→                <div className="space-y-2">
+   550→   550→                  {Array.from({ length: 3 }).map((_, i) => (
+   551→   551→                    <Skeleton
+   552→   552→                      key={i}
+   553→   553→                      className="h-14 rounded-xl skeleton-shimmer"
+   554→   554→                    />
+   555→   555→                  ))}
+   556→   556→                </div>
+   557→   557→              )}
+   558→   558→            </motion.div>
+   559→   559→          )}
+   560→   560→
+   561→   561→          {/* ===== SEARCH VIEW ===== */}
+   562→   562→          {currentView === "search" && (
+   563→   563→            <motion.div
+   564→   564→              key="search"
+   565→   565→              variants={pageVariants}
+   566→   566→              initial="initial"
+   567→   567→              animate="animate"
+   568→   568→              exit="exit"
+   569→   569→              transition={{ duration: 0.3 }}
+   570→   570→              className="space-y-4"
+   571→   571→            >
+   572→   572→              <BackButton onClick={() => setView("home")} />
+   573→   573→              <SearchBar
+   574→   574→                value={searchQuery}
+   575→   575→                onChange={(val) => setSearchQuery(val)}
+   576→   576→                onSearch={handleSearchAction}
+   577→   577→                autoFocus
+   578→   578→              />
+   579→   579→
+   580→   580→              {/* Style Filter Chips in Search */}
+   581→   581→              <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-none">
+   582→   582→                {styleChips.map((style) => (
+   583→   583→                  <button
+   584→   584→                    key={style}
+   585→   585→                    onClick={() => handleStyleChipClick(style)}
+   586→   586→                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
+   587→   587→                      searchQuery === style
+   588→   588→                        ? "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-300/40"
+   589→   589→                        : "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/50 hover:bg-amber-200 dark:hover:bg-amber-900/50"
+   590→   590→                    }`}
+   591→   591→                  >
+   592→   592→                    {style}
+   593→   593→                  </button>
+   594→   594→                ))}
+   595→   595→              </div>
+   596→   596→
+   597→   597→              {/* Advanced Filters Toggle */}
+   598→   598→              <button
+   599→   599→                onClick={() => setShowFilters(!showFilters)}
+   600→   600→                className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+   601→   601→              >
+   602→   602→                <Filter className="h-4 w-4" />
+   603→   603→                {showFilters ? "Скрыть фильтры" : "Фильтры"}
+   604→   604→              </button>
+   605→   605→
+   606→   606→              {/* ABV Range Filter */}
+   607→   607→              <AnimatePresence>
+   608→   608→                {showFilters && (
+   609→   609→                  <motion.div
+   610→   610→                    initial={{ height: 0, opacity: 0 }}
+   611→   611→                    animate={{ height: "auto", opacity: 1 }}
+   612→   612→                    exit={{ height: 0, opacity: 0 }}
+   613→   613→                    className="overflow-hidden"
+   614→   614→                  >
+   615→   615→                    <Card className="border-amber-200/60 dark:border-amber-900/30 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl">
+   616→   616→                      <CardContent className="p-4 space-y-3">
+   617→   617→                        <div className="flex items-center justify-between">
+   618→   618→                          <span className="text-sm font-medium text-foreground">ABV диапазон</span>
+   619→   619→                          <span className="text-sm text-amber-600 dark:text-amber-400 font-semibold">
+   620→   620→                            {abvRange[0]}% — {abvRange[1]}%
+   621→   621→                          </span>
+   622→   622→                        </div>
+   623→   623→                        <Slider
+   624→   624→                          value={abvRange}
+   625→   625→                          onValueChange={(val) => setAbvRange(val as [number, number])}
+   626→   626→                          min={0}
+   627→   627→                          max={15}
+   628→   628→                          step={0.5}
+   629→   629→                          className="py-2"
+   630→   630→                        />
+   631→   631→                      </CardContent>
+   632→   632→                    </Card>
+   633→   633→                  </motion.div>
+   634→   634→                )}
+   635→   635→              </AnimatePresence>
+   636→   636→
+   637→   637→              {/* Results count + Sort */}
+   638→   638→              {!searchLoading && searchTotal > 0 && (
+   639→   639→                <div className="flex items-center justify-between">
+   640→   640→                  <p className="text-sm text-muted-foreground">
+   641→   641→                    Найдено: {searchTotal.toLocaleString("ru-RU")} сортов
+   642→   642→                  </p>
+   643→   643→                  <div className="flex items-center gap-2">
+   644→   644→                    <Filter className="h-4 w-4 text-muted-foreground" />
+   645→   645→                    <Select value={sortBy} onValueChange={setSortBy}>
+   646→   646→                      <SelectTrigger className="w-[130px] h-8 text-xs border-amber-200 dark:border-amber-800">
+   647→   647→                        <SelectValue />
+   648→   648→                      </SelectTrigger>
+   649→   649→                      <SelectContent>
+   650→   650→                        <SelectItem value="rating">Рейтинг</SelectItem>
+   651→   651→                        <SelectItem value="abv">ABV</SelectItem>
+   652→   652→                        <SelectItem value="checkins">Чекины</SelectItem>
+   653→   653→                      </SelectContent>
+   654→   654→                    </Select>
+   655→   655→                    <Button
+   656→   656→                      variant="outline"
+   657→   657→                      size="sm"
+   658→   658→                      onClick={exportCSV}
+   659→   659→                      className="h-8 text-xs border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+   660→   660→                    >
+   661→   661→                      <Download className="h-3.5 w-3.5 mr-1" />
+   662→   662→                      CSV
+   663→   663→                    </Button>
+   664→   664→                  </div>
+   665→   665→                </div>
+   666→   666→              )}
+   667→   667→
+   668→   668→              {/* Loading skeletons */}
+   669→   669→              {searchLoading && (
+   670→   670→                <div className="space-y-3">
+   671→   671→                  {Array.from({ length: 5 }).map((_, i) => (
+   672→   672→                    <Skeleton
+   673→   673→                      key={i}
+   674→   674→                      className="h-24 rounded-xl skeleton-shimmer"
+   675→   675→                    />
+   676→   676→                  ))}
+   677→   677→                </div>
+   678→   678→              )}
+   679→   679→
+   680→   680→              {/* Empty state */}
+   681→   681→              {!searchLoading && searchTotal === 0 && searchQuery && (
+   682→   682→                <EmptyState
+   683→   683→                  title="Нет результатов"
+   684→   684→                  description={`По запросу «${searchQuery}» ничего не найдено. Попробуйте другой запрос.`}
+   685→   685→                  icon={<Search className="h-8 w-8 text-amber-500" />}
+   686→   686→                />
+   687→   687→              )}
+   688→   688→
+   689→   689→              {/* Results list */}
+   690→   690→              <div className="space-y-3">
+   691→   691→                {sortedResults.map((beer, index) => (
+   692→   692→                  <BeerCard
+   693→   693→                    key={beer.id}
+   694→   694→                    beer={beer}
+   695→   695→                    onClick={() => selectBeer(beer)}
+   696→   696→                    index={index}
+   697→   697→                  />
+   698→   698→                ))}
+   699→   699→              </div>
+   700→   700→
+   701→   701→              {/* Load More */}
+   702→   702→              {!searchLoading &&
+   703→   703→                searchResults.length > 0 &&
+   704→   704→                searchResults.length < searchTotal && (
+   705→   705→                  <div className="flex justify-center pt-2">
+   706→   706→                    <Button
+   707→   707→                      variant="outline"
+   708→   708→                      onClick={loadMoreResults}
+   709→   709→                      className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+   710→   710→                    >
+   711→   711→                      Загрузить ещё
+   712→   712→                    </Button>
+   713→   713→                  </div>
+   714→   714→                )}
+   715→   715→            </motion.div>
+   716→   716→          )}
+   717→   717→
+   718→   718→          {/* ===== DETAIL VIEW ===== */}
+   719→   719→          {currentView === "detail" && (
+   720→   720→            <motion.div
+   721→   721→              key="detail"
+   722→   722→              initial={{ opacity: 0, x: 20 }}
+   723→   723→              animate={{ opacity: 1, x: 0 }}
+   724→   724→              exit={{ opacity: 0, x: -20 }}
+   725→   725→              transition={{ duration: 0.3 }}
+   726→   726→            >
+   727→   727→              <BeerDetail />
+   728→   728→            </motion.div>
+   729→   729→          )}
+   730→   730→
+   731→   731→          {/* ===== TRENDING VIEW ===== */}
+   732→   732→          {currentView === "trending" && (
+   733→   733→            <motion.div
+   734→   734→              key="trending"
+   735→   735→              variants={pageVariants}
+   736→   736→              initial="initial"
+   737→   737→              animate="animate"
+   738→   738→              exit="exit"
+   739→   739→              transition={{ duration: 0.3 }}
+   740→   740→              className="space-y-4"
+   741→   741→            >
+   742→   742→              <BackButton onClick={() => setView("home")} />
+   743→   743→              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+   744→   744→                🔥 Тренды
+   745→   745→              </h1>
+   746→   746→              <TrendingList />
+   747→   747→            </motion.div>
+   748→   748→          )}
+   749→   749→
+   750→   750→          {/* ===== HISTORY VIEW ===== */}
+   751→   751→          {currentView === "history" && (
+   752→   752→            <motion.div
+   753→   753→              key="history"
+   754→   754→              variants={pageVariants}
+   755→   755→              initial="initial"
+   756→   756→              animate="animate"
+   757→   757→              exit="exit"
+   758→   758→              transition={{ duration: 0.3 }}
+   759→   759→              className="space-y-4"
+   760→   760→            >
+   761→   761→              <BackButton onClick={() => setView("home")} />
+   762→   762→              <HistoryList onSearch={(q) => doSearch(q)} />
+   763→   763→            </motion.div>
+   764→   764→          )}
+   765→   765→
+   766→   766→          {/* ===== FAVORITES VIEW ===== */}
+   767→   767→          {currentView === "favorites" && (
+   768→   768→            <motion.div
+   769→   769→              key="favorites"
+   770→   770→              variants={pageVariants}
+   771→   771→              initial="initial"
+   772→   772→              animate="animate"
+   773→   773→              exit="exit"
+   774→   774→              transition={{ duration: 0.3 }}
+   775→   775→              className="space-y-4"
+   776→   776→            >
+   777→   777→              <BackButton onClick={() => setView("home")} />
+   778→   778→              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+   779→   779→                ⭐ Избранное
+   780→   780→              </h1>
+   781→   781→              <FavoritesGrid />
+   782→   782→            </motion.div>
+   783→   783→          )}
+   784→   784→
+   785→   785→          {/* ===== RECOGNIZE VIEW ===== */}
+   786→   786→          {currentView === "recognize" && (
+   787→   787→            <motion.div
+   788→   788→              key="recognize"
+   789→   789→              variants={pageVariants}
+   790→   790→              initial="initial"
+   791→   791→              animate="animate"
+   792→   792→              exit="exit"
+   793→   793→              transition={{ duration: 0.3 }}
+   794→   794→              className="space-y-4"
+   795→   795→            >
+   796→   796→              <BackButton onClick={() => setView("home")} />
+   797→   797→              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+   798→   798→                📸 Распознать пиво
+   799→   799→              </h1>
+   800→   800→              <PhotoRecognizer />
+   801→   801→            </motion.div>
+   802→   802→          )}
+   803→   803→
+   804→   804→          {/* ===== STYLES VIEW ===== */}
+   805→   805→          {currentView === "styles" && (
+   806→   806→            <motion.div
+   807→   807→              key="styles"
+   808→   808→              variants={pageVariants}
+   809→   809→              initial="initial"
+   810→   810→              animate="animate"
+   811→   811→              exit="exit"
+   812→   812→              transition={{ duration: 0.3 }}
+   813→   813→              className="space-y-4"
+   814→   814→            >
+   815→   815→              <BackButton onClick={() => setView("home")} />
+   816→   816→              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+   817→   817→                <LayoutGrid className="h-6 w-6 text-emerald-500" />
+   818→   818→                Каталог стилей
+   819→   819→              </h1>
+   820→   820→              <StyleExplorer onSearchStyle={handleSearchStyle} />
+   821→   821→            </motion.div>
+   822→   822→          )}
+   823→   823→
+   824→   824→          {/* ===== COMPARE VIEW ===== */}
+   825→   825→          {currentView === "compare" && (
+   826→   826→            <motion.div
+   827→   827→              key="compare"
+   828→   828→              variants={pageVariants}
+   829→   829→              initial="initial"
+   830→   830→              animate="animate"
+   831→   831→              exit="exit"
+   832→   832→              transition={{ duration: 0.3 }}
+   833→   833→            >
+   834→   834→              <CompareView />
+   835→   835→            </motion.div>
+   836→   836→          )}
+   837→   837→        </AnimatePresence>
+   838→   838→      </div>
+   839→   839→
+   840→   840→      <ScrollToTop />
+   841→   841→
+   842→   842→      {/* Floating Compare Bar */}
+   843→   843→      <AnimatePresence>
+   844→   844→        {compareBeers.length > 0 && currentView !== "compare" && (
+   845→   845→          <motion.div
+   846→   846→            initial={{ y: 80, opacity: 0 }}
+   847→   847→            animate={{ y: 0, opacity: 1 }}
+   848→   848→            exit={{ y: 80, opacity: 0 }}
+   849→   849→            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+   850→   850→            className="fixed bottom-0 left-0 right-0 z-50 p-3"
+   851→   851→          >
+   852→   852→            <div className="max-w-2xl mx-auto">
+   853→   853→              <Button
+   854→   854→                onClick={() => {
+   855→   855→                  if (compareBeers.length === 2) {
+   856→   856→                    setShowCompare(true);
+   857→   857→                    setView("compare");
+   858→   858→                  } else {
+   859→   859→                    toast({
+   860→   860→                      title: "Выберите 2 пива",
+   861→   861→                      description: `Добавьте ещё ${2 - compareBeers.length} пиво для сравнения`,
+   862→   862→                    });
+   863→   863→                  }
+   864→   864→                }}
+   865→   865→                className="w-full h-12 bg-amber-500 hover:bg-amber-600 text-white gap-2 shadow-xl shadow-amber-500/30 dark:shadow-amber-900/40 rounded-xl font-semibold"
+   866→   866→              >
+   867→   867→                <ArrowLeftRight className="h-5 w-5" />
+   868→   868→                Сравнить ({compareBeers.length}/2)
+   869→   869→                <span className="text-amber-200 text-xs ml-1">
+   870→   870→                  {compareBeers.map((b) => b.name).join(" vs ")}
+   871→   871→                </span>
+   872→   872→              </Button>
+   873→   873→            </div>
+   874→   874→          </motion.div>
+   875→   875→        )}
+   876→   876→      </AnimatePresence>
+   877→   877→    </main>
+   878→   878→    </>
+   879→   879→  );
+   880→   880→}

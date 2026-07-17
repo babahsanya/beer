@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Beer {
+  id              String         @id @default(cuid())
+  name            String
+  style           String
+  abv             Float          @default(0.0)
+  ibu             Int            @default(0)
+  country         String         @default("")
+  brewery         String
+  description     String         @default("")
+  label           String         @default("")
+  rating          Float          @default(0.0)
+  ratingCount     Int            @default(0)
+  untappdBid      Int            @default(0)
+  totalCheckins   Int            @default(0)
+  monthlyCheckins Int            @default(0)
+  dailyCheckins   Int            @default(0)
+  source          String         @default("seed")
+  lastUpdated     DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+  reviews         Review[]
+  favorites       Favorite[]
+  trendingEntries TrendingBeer[]
+  viewHistory     ViewHistory[]
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  beerId    String
+  author    String   @default("Anonymous")
+  rating    Float    @default(0.0)
+  comment   String   @default("")
+  createdAt DateTime @default(now())
+  beer      Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  beerId    String
+  createdAt DateTime @default(now())
+  beer      Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+}
+
+model SearchHistory {
+  id          String   @id @default(cuid())
+  query       String
+  resultCount Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model TrendingBeer {
+  id          String   @id @default(cuid())
+  beerId      String   @unique
+  category    String   @default("global")
+  checkinDelta Int     @default(0)
+  rank        Int      @default(0)
+  updatedAt   DateTime @default(now())
+  beer        Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+}
+
+model ViewHistory {
+  id        String   @id @default(cuid())
+  beerId    String
+  beerName  String   @default("")
+  createdAt DateTime @default(now())
+  beer      Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+}
