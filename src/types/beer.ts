@@ -83,6 +83,45 @@ export interface QuickStats {
   avgRating: number;
 }
 
+export interface QuizQuestion {
+  id: string;
+  fact1: string;
+  fact2: string;
+  fact3: string;
+  options: string[];
+ correctIndex: number;
+ beerName: string;
+}
+
+export interface Achievement {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  icon: string;
+  unlockedAt: string | null;
+  progress: number;
+  target: number;
+}
+
+export interface BreweryMapPoint {
+  id: string;
+  name: string;
+  country: string;
+  lat: number;
+  lng: number;
+  beerCount: number;
+  topBeer: string;
+ topBeerId: string;
+ avgRating: number;
+}
+
+export interface Recommendation {
+  beer: Beer;
+  reason: string;
+ score: number;
+}
+
 export type AppView =
   | "home"
   | "search"
@@ -94,6 +133,11 @@ export type AppView =
   | "styles"
   | "compare"
   | "help"
-  | "settings";
+  | "settings"
+  | "quiz"
+  | "calculator"
+  | "map"
+  | "achievements"
+  | "recommendations";
 
 export type TrendingCategory = "craft" | "macro" | "global" | "weekly";

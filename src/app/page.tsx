@@ -30,6 +30,11 @@ import { TopBeers } from "@/components/beer/top-beers";
 import { BeerOfTheDay } from "@/components/beer/beer-of-the-day";
 import { HelpView } from "@/components/beer/help-view";
 import { SettingsView } from "@/components/beer/settings-view";
+import { BreweryMap } from "@/components/beer/brewery-map";
+import QuizView from "@/components/beer/quiz-view";
+import { CalculatorView } from "@/components/beer/calculator-view";
+import { AchievementsView } from "@/components/beer/achievements-view";
+import { RecommendationsView } from "@/components/beer/recommendations-view";
 import { StyleDistribution } from "@/components/beer/style-distribution";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -60,6 +65,11 @@ import {
   Trophy,
   Hash,
   Settings,
+  MapPin,
+  Brain,
+  Calculator,
+  Award,
+  Sparkles,
 } from "lucide-react";
 import type { Beer, SearchHistory } from "@/types/beer";
 
@@ -420,6 +430,46 @@ export default function Home() {
   };
 
   const extraActionCards = [
+    {
+      icon: <MapPin className="h-6 w-6" />,
+      emoji: "🗺️",
+      title: "Карта пивоварен",
+      subtitle: "Мир пива на карте",
+      action: () => setView("map"),
+      color: "from-amber-500 to-orange-600",
+    },
+    {
+      icon: <Brain className="h-6 w-6" />,
+      emoji: "🧠",
+      title: "Пивной квиз",
+      subtitle: "Угадай пиво по фактам",
+      action: () => setView("quiz"),
+      color: "from-violet-400 to-violet-600",
+    },
+    {
+      icon: <Calculator className="h-6 w-6" />,
+      emoji: "🧮",
+      title: "Калькулятор",
+      subtitle: "Расчёт промилле",
+      action: () => setView("calculator"),
+      color: "from-rose-400 to-rose-600",
+    },
+    {
+      icon: <Award className="h-6 w-6" />,
+      emoji: "🏆",
+      title: "Достижения",
+      subtitle: "Ваши ачивки",
+      action: () => setView("achievements"),
+      color: "from-amber-400 to-amber-600",
+    },
+    {
+      icon: <Sparkles className="h-6 w-6" />,
+      emoji: "✨",
+      title: "Для вас",
+      subtitle: "Персональные советы",
+      action: () => setView("recommendations"),
+      color: "from-pink-400 to-pink-600",
+    },
     {
       icon: <LayoutGrid className="h-6 w-6" />,
       emoji: "📋",
@@ -1074,6 +1124,29 @@ export default function Home() {
             </motion.div>
           )}
 
+          {/* ===== MAP VIEW ===== */}
+          {currentView === "map" && (
+            <motion.div
+              key="map"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="space-y-4"
+            >
+              <BackButton onClick={() => setView("home")} />
+              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                🗺️ Карта пивоварен
+              </h1>
+              <BreweryMap onNavigateToBeer={(beerId) => {
+                fetch(`/api/beers/${beerId}`)
+                  .then(r => r.ok ? r.json() : null)
+                  .then(beer => { if (beer) selectBeer(beer); });
+              }} />
+            </motion.div>
+          )}
+
           {/* ===== COMPARE VIEW ===== */}
           {currentView === "compare" && (
             <motion.div
@@ -1117,6 +1190,64 @@ export default function Home() {
             >
               <BackButton onClick={() => setView("home")} />
               <SettingsView />
+            </motion.div>
+          )}
+
+          {/* ===== QUIZ VIEW ===== */}
+          {currentView === "quiz" && (
+            <motion.div
+              key="quiz"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <QuizView />
+            </motion.div>
+          )}
+
+          {/* ===== CALCULATOR VIEW ===== */}
+          {currentView === "calculator" && (
+            <motion.div
+              key="calculator"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <CalculatorView />
+            </motion.div>
+          )}
+
+          {/* ===== ACHIEVEMENTS VIEW ===== */}
+          {currentView === "achievements" && (
+            <motion.div
+              key="achievements"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <BackButton onClick={() => setView("home")} />
+              <AchievementsView />
+            </motion.div>
+          )}
+
+          {/* ===== RECOMMENDATIONS VIEW ===== */}
+          {currentView === "recommendations" && (
+            <motion.div
+              key="recommendations"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <BackButton onClick={() => setView("home")} />
+              <RecommendationsView />
             </motion.div>
           )}
         </AnimatePresence>

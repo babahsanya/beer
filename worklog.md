@@ -642,3 +642,31 @@ Stage Summary:
 - Review pagination ready for >4 reviews per beer
 - Search now debounced with request cancellation
 - Compare feature fully polished with visual highlights
+
+---
+Task ID: 9
+Agent: Main Developer
+Task: Implement 6 new features (5, 12, 13, 14, 15, 16)
+
+Work Log:
+- Updated types/beer.ts: added QuizQuestion, Achievement, BreweryMapPoint, Recommendation interfaces; added quiz/calculator/map/achievements/recommendations to AppView
+- Updated prisma/schema.prisma: added UserAchievement model
+- Ran db:push to create new table
+- Fixed QuizView import (default export vs named export mismatch)
+- Fixed achievements API: replaced createMany with loop (SQLite compat), replaced groupBy with manual Set-based counting
+- Bumped SCHEMA_VERSION to 3 to force Prisma client re-creation
+- Added 4 new action cards to home page (Квиз, Калькулятор, Достижения, Для вас)
+- Added 4 new view blocks in page.tsx (quiz, calculator, achievements, recommendations)
+- Added Brain, Calculator, Award, Sparkles icons from lucide-react
+
+Stage Summary:
+- 6 features implemented via 4 parallel subagents
+- All new API routes: /api/beers/[id]/reviews (POST), /api/quiz, /api/map, /api/achievements, /api/achievements/check, /api/recommendations
+- All new components: quiz-view, calculator-view, achievements-view, recommendations-view, brewery-map, review form in beer-reviews
+- Beer reviews now support user submissions with rating, author, comment
+- Quiz: 10 questions, 15s timer, scoring system, best score in localStorage
+- Calculator: Widmark formula, color-coded BAC, gender/weight/volume inputs
+- Map: SVG dot-matrix world map with 37 breweries, pulsing markers, tooltips
+- Achievements: 8 trackable achievements with auto-sync, progress tracking
+- Recommendations: style/country-based scoring from favorites
+- Lint passes clean, all APIs verified via curl

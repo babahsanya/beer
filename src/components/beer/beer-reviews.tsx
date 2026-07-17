@@ -1,13 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { useState, useEffect, useCallback } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { RatingStars } from "./rating-stars";
 import { EmptyState } from "./empty-state";
-import { MessageSquare, Loader2 } from "lucide-react";
+import { MessageSquare, Loader2, Star, Send } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { motion, AnimatePresence } from "framer-motion";
 import type { Review } from "@/types/beer";
 
 interface BeerReviewsProps {
@@ -23,7 +27,16 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
   const limit = 4;
   const [offset, setOffset] = useState(0);
 
-  const fetchReviews = async (newOffset: number, append: boolean) => {
+  // Form state
+  const [author, setAuthor] = useState("");
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const { toast } = useToast();
+
+  const fetchReviews = useCallback(async (newOffset: number, append: boolean) => {
     try {
       const res = await fetch(
         `/api/beers/${beerId}/reviews?limit=${limit}&offset=${newOffset}`
@@ -44,17 +57,75 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
       setLoading(false);
       setLoadingMore(false);
     }
-  };
+  }, [beerId]);
 
   useEffect(() => {
     setLoading(true);
     setOffset(0);
     fetchReviews(0, false);
-  }, [beerId]);
+  }, [fetchReviews]);
 
   const loadMore = () => {
     setLoadingMore(true);
     fetchReviews(offset, true);
+  };
+
+  const handleSubmit = async () => {
+    setFormError(null);
+
+    if (!author.trim() || author.trim().length < 2) {
+      setFormError("Имя автора обязательно (минимум 2 символа)");
+      return;
+    }
+    if (rating < 1) {
+      setFormError("Пожалуйста, поставьте оценку");
+      return;
+    }
+    if (comment.length > 500) {
+      setFormError("Комментарий не должен превышать 500 символов");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/beers/${beerId}/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          author: author.trim(),
+          rating,
+          comment: comment.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Ошибка при отправке");
+      }
+
+      const newReview: Review = await res.json();
+
+      // Add the new review to the top of the list
+      setReviews((prev) => [newReview, ...prev]);
+      setTotal((prev) => prev + 1);
+
+      // Clear form
+      setAuthor("");
+      setRating(0);
+      setComment("");
+      setShowForm(false);
+
+      toast({
+        title: "Отзыв опубликован!",
+        description: "Спасибо за ваш отзыв",
+      });
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Ошибка при отправке отзыва"
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const formatTimeAgo = (dateStr: string) => {
@@ -97,68 +168,226 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
     );
   }
 
-  if (error) {
+  if (error && reviews.length === 0) {
     return <EmptyState title={error} description="Попробуйте позже" />;
-  }
-
-  if (reviews.length === 0) {
-    return (
-      <EmptyState
-        title="Пока нет отзывов"
-        description="Будьте первым, кто оставит отзыв об этом пиве"
-        icon={<MessageSquare className="h-8 w-8 text-amber-500" />}
-      />
-    );
   }
 
   const hasMore = reviews.length < total;
 
   return (
-    <div className="space-y-3">
-      {/* Reviews counter */}
-      <p className="text-xs text-muted-foreground text-center">
-        Показано {reviews.length} из {total}{" "}
-        {total === 1
-          ? "отзыва"
-          : total >= 2 && total <= 4
-          ? "отзывов"
-          : "отзывов"}
-      </p>
+    <div className="space-y-4">
+      {/* Review Form */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 0 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <Card className="border-amber-200 dark:border-amber-900/50 bg-gradient-to-br from-amber-50/80 to-orange-50/40 dark:from-amber-950/30 dark:to-stone-900/30">
+              <CardHeader className="pb-3 pt-4 px-4">
+                <CardTitle className="text-base font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                  <Send className="h-4 w-4" />
+                  Оставить отзыв
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 space-y-3">
+                {/* Author input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Ваше имя <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    value={author}
+                    onChange={(e) => setAuthor(e.target.value)}
+                    placeholder="Введите имя..."
+                    className="border-amber-200 dark:border-amber-800 bg-white dark:bg-stone-800 focus-visible:ring-amber-400 h-9 text-sm"
+                    maxLength={50}
+                    disabled={submitting}
+                  />
+                </div>
 
-      {reviews.map((review) => (
-        <Card
-          key={review.id}
-          className="border-amber-200 dark:border-amber-900/50 bg-white dark:bg-stone-800"
+                {/* Star rating */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Оценка <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setRating(star)}
+                        disabled={submitting}
+                        className="p-0.5 transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded"
+                        aria-label={`Оценка ${star}`}
+                      >
+                        <Star
+                          size={24}
+                          className={
+                            star <= rating
+                              ? "fill-amber-400 text-amber-400 drop-shadow-sm"
+                              : "text-muted-foreground/25 hover:text-amber-300/60"
+                          }
+                        />
+                      </button>
+                    ))}
+                    {rating > 0 && (
+                      <motion.span
+                        initial={{ opacity: 0, x: -4 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="ml-2 text-sm font-bold text-amber-600 dark:text-amber-400"
+                      >
+                        {rating}.0
+                      </motion.span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Comment textarea */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Комментарий
+                  </label>
+                  <Textarea
+                    value={comment}
+                    onChange={(e) => {
+                      if (e.target.value.length <= 500) {
+                        setComment(e.target.value);
+                      }
+                    }}
+                    placeholder="Поделитесь впечатлениями..."
+                    className="border-amber-200 dark:border-amber-800 bg-white dark:bg-stone-800 focus-visible:ring-amber-400 text-sm min-h-[80px] resize-none"
+                    maxLength={500}
+                    disabled={submitting}
+                  />
+                  <div className="flex justify-end">
+                    <span
+                      className={`text-xs ${
+                        comment.length >= 450
+                          ? "text-amber-600 dark:text-amber-400 font-medium"
+                          : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {comment.length}/500
+                    </span>
+                  </div>
+                </div>
+
+                {/* Error message */}
+                <AnimatePresence>
+                  {formError && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      className="text-xs text-red-500 font-medium"
+                    >
+                      {formError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+
+                {/* Submit button */}
+                <Button
+                  onClick={handleSubmit}
+                  disabled={submitting || !author.trim() || rating < 1}
+                  className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold h-9 text-sm shadow-md shadow-amber-200/50 dark:shadow-amber-900/30 disabled:opacity-50"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Отправка...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4 mr-2" />
+                      Отправить отзыв
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toggle form button (when form is hidden) */}
+      {!showForm && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
         >
-          <CardContent className="p-4">
-            <div className="flex gap-3">
-              <Avatar className="h-10 w-10 bg-amber-100 dark:bg-amber-900/30">
-                <AvatarFallback className="bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 text-sm font-semibold">
-                  {review.author?.slice(0, 2).toUpperCase() || "???"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-sm text-foreground">
-                    {review.author || "Аноним"}
-                  </span>
-                  <span className="text-xs text-muted-foreground shrink-0">
-                    {formatTimeAgo(review.createdAt)}
-                  </span>
-                </div>
-                <div className="mt-1">
-                  <RatingStars rating={review.rating} size={12} />
-                </div>
-                {review.comment && (
-                  <p className="mt-2 text-sm text-foreground/80 leading-relaxed">
-                    {review.comment}
-                  </p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+          <Button
+            variant="outline"
+            onClick={() => setShowForm(true)}
+            className="w-full border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30 gap-2 h-9 text-sm"
+          >
+            <MessageSquare className="h-4 w-4" />
+            Написать отзыв
+          </Button>
+        </motion.div>
+      )}
+
+      {/* Reviews list */}
+      {reviews.length === 0 && !loading ? (
+        <EmptyState
+          title="Пока нет отзывов"
+          description="Будьте первым, кто оставит отзыв об этом пиве"
+          icon={<MessageSquare className="h-8 w-8 text-amber-500" />}
+        />
+      ) : (
+        <>
+          {/* Reviews counter */}
+          <p className="text-xs text-muted-foreground text-center">
+            Показано {reviews.length} из {total}{" "}
+            {total === 1
+              ? "отзыва"
+              : total >= 2 && total <= 4
+              ? "отзыва"
+              : "отзывов"}
+          </p>
+
+          <div className="space-y-3">
+            {reviews.map((review) => (
+              <Card
+                key={review.id}
+                className="border-amber-200 dark:border-amber-900/50 bg-white dark:bg-stone-800"
+              >
+                <CardContent className="p-4">
+                  <div className="flex gap-3">
+                    <Avatar className="h-10 w-10 bg-amber-100 dark:bg-amber-900/30">
+                      <AvatarFallback className="bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 text-sm font-semibold">
+                        {review.author?.slice(0, 2).toUpperCase() || "???"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-sm text-foreground">
+                          {review.author || "Аноним"}
+                        </span>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {formatTimeAgo(review.createdAt)}
+                        </span>
+                      </div>
+                      <div className="mt-1">
+                        <RatingStars rating={review.rating} size={12} />
+                      </div>
+                      {review.comment && (
+                        <p className="mt-2 text-sm text-foreground/80 leading-relaxed">
+                          {review.comment}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
 
       {hasMore && (
         <div className="flex flex-col items-center gap-2 pt-2">
