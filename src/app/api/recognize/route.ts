@@ -21,6 +21,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Limit image size to ~5MB base64
+    if (image.length > 7_000_000) {
+      return NextResponse.json(
+        { error: 'Изображение слишком большое (максимум 5 МБ)' },
+        { status: 400 }
+      );
+    }
+
     // Use VLM to identify the beer label
     const zai = await ZAI.create();
 
@@ -76,15 +84,18 @@ export async function POST(request: NextRequest) {
 
     // Search for matching beers in the database
     if (parsed && parsed.name) {
-      const searchTerm = parsed.name.toLowerCase();
+      const whereConditions: Record<string, unknown>[] = [
+        { name: { contains: parsed.name } },
+      ];
+      if (parsed.brewery && parsed.brewery.trim().length > 0) {
+        whereConditions.push({ brewery: { contains: parsed.brewery } });
+      }
+      if (parsed.style && parsed.style.trim().length > 0) {
+        whereConditions.push({ style: { contains: parsed.style } });
+      }
+
       const matchingBeers = await db.beer.findMany({
-        where: {
-          OR: [
-            { name: { contains: parsed.name } },
-            { brewery: { contains: parsed.brewery || '' } },
-            { style: { contains: parsed.style || '' } },
-          ],
-        },
+        where: { OR: whereConditions },
         orderBy: { rating: 'desc' },
         take: 3,
       });

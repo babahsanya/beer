@@ -23,8 +23,10 @@ export async function GET(request: NextRequest) {
     }
 
     const qLower = q.trim().toLowerCase();
-    const prefix = `${qLower}%`;
-    const contains = `%${qLower}%`;
+    const escapedQ = qLower.replace(/!/g, '!!').replace(/%/g, '!%').replace(/_/g, '!_');
+    const ESC = " ESCAPE '!'";
+    const prefix = `${escapedQ}%`;
+    const contains = `%${escapedQ}%`;
 
     // Check for Russian aliases (both: query contains alias key, OR query is prefix of alias key)
     const englishAliases: string[] = [];
@@ -38,32 +40,32 @@ export async function GET(request: NextRequest) {
 
     // Build conditions: prefix match OR contains match OR alias match
     const nameConditions = [
-      `LOWER("name") LIKE ?`,    // prefix
-      `LOWER("name") LIKE ?`,    // contains (for short queries)
+      `LOWER("name") LIKE ?${ESC}`,
+      `LOWER("name") LIKE ?${ESC}`,
     ];
     const nameParams: unknown[] = [prefix, contains];
 
     for (const ap of aliasPrefixes) {
-      nameConditions.push(`LOWER("name") LIKE ?`);
+      nameConditions.push(`LOWER("name") LIKE ?${ESC}`);
       nameParams.push(ap);
     }
     for (const ac of aliasContains) {
-      nameConditions.push(`LOWER("name") LIKE ?`);
+      nameConditions.push(`LOWER("name") LIKE ?${ESC}`);
       nameParams.push(ac);
     }
 
     const styleConditions = [
-      `LOWER("style") LIKE ?`,
-      `LOWER("style") LIKE ?`,
+      `LOWER("style") LIKE ?${ESC}`,
+      `LOWER("style") LIKE ?${ESC}`,
     ];
     const styleParams: unknown[] = [prefix, contains];
 
     for (const ap of aliasPrefixes) {
-      styleConditions.push(`LOWER("style") LIKE ?`);
+      styleConditions.push(`LOWER("style") LIKE ?${ESC}`);
       styleParams.push(ap);
     }
     for (const ac of aliasContains) {
-      styleConditions.push(`LOWER("style") LIKE ?`);
+      styleConditions.push(`LOWER("style") LIKE ?${ESC}`);
       styleParams.push(ac);
     }
 

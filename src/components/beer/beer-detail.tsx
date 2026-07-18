@@ -55,6 +55,11 @@ export function BeerDetail() {
   const fetchBeer = useCallback(
     async (showRefresh = false) => {
       if (!beer?.id) return;
+      // For online beers, skip API fetch — use data from search result
+      if (beer.id.startsWith('online-')) {
+        setLoading(false);
+        return;
+      }
       if (showRefresh) setRefreshing(true);
       else setLoading(true);
       try {
@@ -152,6 +157,7 @@ export function BeerDetail() {
   if (!beer) return null;
 
   const isHighAbv = beer.abv > 8;
+  const isOnline = beer.id.startsWith('online-');
 
   if (loading) {
     return (
@@ -272,6 +278,12 @@ export function BeerDetail() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap mt-3">
+                  {isOnline && (
+                    <Badge className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:bg-blue-100 gap-1">
+                      <Globe className="h-3 w-3" />
+                      Данные из интернета
+                    </Badge>
+                  )}
                   <Badge className="bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100">
                     {beer.style}
                   </Badge>

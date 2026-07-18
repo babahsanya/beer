@@ -430,7 +430,9 @@ export default function Home() {
     const rows = sortedResults.map(b => [
       b.name, b.style, b.abv, b.ibu, b.country, b.brewery, b.rating, b.totalCheckins
     ]);
-    const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const csv = [headers, ...rows].map(r =>
+      r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")
+    ).join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

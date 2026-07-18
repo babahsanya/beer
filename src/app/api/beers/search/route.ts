@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+// Escape LIKE wildcards in user input to prevent wildcard injection
+// Uses '!' as ESCAPE character in SQLite
+function escapeLike(str: string): string {
+  return str
+    .replace(/!/g, '!!')     // escape literal ! first
+    .replace(/%/g, '!%')     // escape %
+    .replace(/_/g, '!_');    // escape _
+}
+
 // Bilingual alias expansion: Russian substrings → English equivalents
 const RU_EN_ALIASES: Record<string, string> = {
   стаут: 'stout',
@@ -85,7 +94,7 @@ async function searchLocal(
   offset: number,
   sortBy: string
 ): Promise<{ beers: Record<string, unknown>[]; total: number }> {
-  const likePattern = `%${qTrimmed.toLowerCase()}%`;
+  const likePattern = `%${escapeLike(qTrimmed.toLowerCase())}%`;
 
   // Build bilingual expansion
   const englishAliases = expandAliases(qTrimmed);
@@ -94,29 +103,33 @@ async function searchLocal(
   );
 
   // Build WHERE clause with all search fields + bilingual aliases
+  const ESC = " ESCAPE '!'";
   const conditions: string[] = [
-    'LOWER("name") LIKE ?',
-    'LOWER("style") LIKE ?',
-    'LOWER("brewery") LIKE ?',
-    'LOWER("country") LIKE ?',
-    'LOWER("description") LIKE ?',
+    `LOWER("name") LIKE ?${ESC}`,
+    `LOWER("style") LIKE ?${ESC}`,
+    `LOWER("brewery") LIKE ?${ESC}`,
+    `LOWER("country") LIKE ?${ESC}`,
+    `LOWER("description") LIKE ?${ESC}`,
   ];
   const params: unknown[] = [
     likePattern, likePattern, likePattern, likePattern, likePattern,
   ];
 
   for (const ap of aliasPatterns) {
-    conditions.push('LOWER("name") LIKE ?');
+    conditions.push(`LOWER("name") LIKE ?${ESC}`);
     params.push(ap);
-    conditions.push('LOWER("style") LIKE ?');
+    conditions.push(`LOWER("style") LIKE ?${ESC}`);
     params.push(ap);
   }
 
   const whereClause = conditions.join(' OR ');
 
+  const ALLOWED_SORT = new Set(['rating', 'abv', 'checkins']);
+  const safeSortBy = ALLOWED_SORT.has(sortBy) ? sortBy : 'rating';
+
   let orderClause = '"rating" DESC';
-  if (sortBy === 'abv') orderClause = '"abv" DESC';
-  if (sortBy === 'checkins') orderClause = '"totalCheckins" DESC';
+  if (safeSortBy === 'abv') orderClause = '"abv" DESC';
+  if (safeSortBy === 'checkins') orderClause = '"totalCheckins" DESC';
 
   const [beers, totalResult] = await Promise.all([
     db.$queryRawUnsafe(
@@ -195,7 +208,11 @@ async function searchOnline(
     const zai = await ZAI.create();
 
     // Step 1: Search the web for beer info
-    const searchQuery = `beer ${qTrimmed} ABV style rating brewery`;
+    // Sanitize query to prevent prompt injection
+    const sanitizedQuery = qTrimmed
+      .replace(/[{}[\]\\"]/g, '')
+      .slice(0, 200);
+    const searchQuery = `beer ${sanitizedQuery} ABV style rating brewery`;
     const webResult = await zai.functions.invoke('web_search', {
       query: searchQuery,
     });

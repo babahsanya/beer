@@ -259,14 +259,14 @@ export function PhotoRecognizer() {
                   </div>
                   <Badge
                     className={`shrink-0 font-semibold ${
-                      match.confidence > 0.8
+                      match.confidence > 80
                         ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
-                        : match.confidence > 0.5
+                        : match.confidence > 50
                         ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
                         : "bg-stone-100 dark:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-600"
                     }`}
                   >
-                    {Math.round(match.confidence * 100)}%
+                    {match.confidence}%
                   </Badge>
                 </div>
               </CardContent>

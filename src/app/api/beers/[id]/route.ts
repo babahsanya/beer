@@ -8,6 +8,15 @@ export async function GET(
   try {
     const { id } = await params;
 
+    // For online beers (id starts with "online-"), return stored data from search
+    // These beers don't exist in the DB, so return a mock detail from what we have
+    if (id.startsWith('online-')) {
+      return NextResponse.json(
+        { error: 'Онлайн-результат — подробности недоступны' },
+        { status: 404 }
+      );
+    }
+
     const beer = await db.beer.findUnique({
       where: { id },
       include: {

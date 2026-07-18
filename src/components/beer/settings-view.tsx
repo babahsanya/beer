@@ -298,7 +298,7 @@ export function SettingsView() {
                   { label: "Версия", value: "1.0.0" },
                   { label: "Данные", value: "Открытые" },
                   { label: "Пивоварен", value: "15+" },
-                  { label: "Сортов пива", value: "35+" },
+                  { label: "Сортов пива", value: "100+" },
                 ].map((item) => (
                   <div
                     key={item.label}

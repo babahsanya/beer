@@ -716,3 +716,45 @@ Verified via agent-browser:
 - "coro" → 1 result (Corona Extra, local) ✓  
 - "Chimay Blue" → 4 results (1 local + 3 online) ✓
 - Source badges "База" and "Онлайн" display correctly ✓
+---
+Task ID: 10
+Agent: Main Developer
+Task: Full code audit — bugs, vulnerabilities, edge cases
+
+Work Log:
+- Read and analyzed ALL 25 API routes, 30+ components, store, types, lib utilities, Prisma schema
+- Found 11 bugs/vulnerabilities and fixed all:
+
+CRITICAL FIXES:
+1. SQL LIKE wildcard injection (search + suggestions): User could type % or _ to match all records. Fixed with escapeLike() function using ESCAPE '!' clause. Verified: % now returns 1 (was 108).
+2. SQL sortBy injection: sortBy param directly interpolated into raw SQL. Fixed with ALLOWED_SORT whitelist.
+3. Prompt injection in online search: User input was interpolated into LLM prompt. Fixed with sanitization (strip {}, [], \", limit 200 chars).
+4. Online beer detail 404: Clicking online beer (id="online-xxx") tried to fetch from DB. Fixed: skip API fetch for online beers, show data from store, add "Данные из интернета" badge.
+5. Recognize empty brewery matches ALL: brewery:{contains:''} matches every beer. Fixed: only add brewery/style conditions when non-empty.
+6. Image size limit: /api/recognize accepted unlimited base64. Added 7MB limit.
+
+BUG FIXES:
+7. Confidence scale mismatch: Backend returns 0-100, frontend treated as 0-1. Fixed threshold (>0.8→>80, >0.5→>50) and display (removed *100).
+8. hash & hash no-op in beer-of-the-day: Was a no-op. Fixed to hash |= 0.
+9. CSV export quote escaping: Double quotes in beer names broke CSV. Fixed with .replace(/"/g, '""').
+10. Settings showed "35+" beers. Updated to "100+".
+11. LIKE escape in suggestions route: Same wildcard injection. Fixed with same escapeLike + ESCAPE approach.
+
+FILES MODIFIED:
+- src/app/api/beers/search/route.ts (escapeLike, ALLOWED_SORT, prompt sanitization, ESCAPE clause)
+- src/app/api/beers/suggestions/route.ts (escapeLike, ESCAPE clause)
+- src/app/api/beers/[id]/route.ts (online beer early return)
+- src/app/api/beers/beer-of-the-day/route.ts (hash |= 0)
+- src/app/api/recognize/route.ts (image size limit, empty brewery/style fix)
+- src/app/page.tsx (CSV quote escaping, Database/Globe icons, source indicators)
+- src/components/beer/beer-detail.tsx (online beer skip fetch, online badge)
+- src/components/beer/beer-card.tsx (online badge, Globe icon)
+- src/components/beer/photo-recognizer.tsx (confidence scale fix)
+- src/components/beer/settings-view.tsx ("100+" instead of "35+")
+- src/lib/countries.ts (English country names for online results)
+
+Stage Summary:
+- All 11 bugs fixed, lint clean
+- SQL injection: % returns 1 result (was 108), _ returns 7 (literal matches only)
+- Normal search verified: "stout" → 10 results, "IPA" → 18 results, "Guinness" → 2+4 (local+online)
+- Online beer detail now shows available data from search result instead of 404
