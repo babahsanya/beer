@@ -1,6 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
+import { searchBreweries, getCountryFlag } from '@/lib/brewerydb';
+import { searchPunkBeers } from '@/lib/punkapi';
+
+// Cache brewery map data (refreshed every 30 minutes)
+let cachedMapData: Array<Record<string, unknown>> | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 30 * 60 * 1000;
+
+interface BreweryMapPoint {
+  id: string;
+  name: string;
+  country: string;
+  city: string;
+  lat: number;
+  lng: number;
+  beerCount: number;
+  topBeer: string;
+  topBeerId: string;
+  avgRating: number;
+  source: 'local' | 'api';
+  breweryType?: string;
+  website?: string | null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,21 +33,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
     }
 
+    // Return cached data if fresh
+    if (cachedMapData && Date.now() - cacheTimestamp < CACHE_TTL) {
+      return NextResponse.json(cachedMapData);
+    }
+
+    // --- Source 1: Local DB breweries (grouped, with hardcoded coordinates) ---
     const beers = await db.beer.findMany({
-      select: {
-        id: true,
-        name: true,
-        brewery: true,
-        country: true,
-        rating: true,
-      },
+      select: { id: true, name: true, brewery: true, country: true, rating: true },
     });
 
-    const breweryMap = new Map<string, {
-      beers: { id: string; name: string; rating: number }[];
-      country: string;
-    }>();
-
+    const breweryMap = new Map<string, { beers: { id: string; name: string; rating: number }[]; country: string }>();
     for (const beer of beers) {
       const existing = breweryMap.get(beer.brewery);
       if (existing) {
@@ -37,20 +56,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const result: Array<{
-      id: string;
-      name: string;
-      country: string;
-      lat: number;
-      lng: number;
-      beerCount: number;
-      topBeer: string;
-      topBeerId: string;
-      avgRating: number;
-    }> = [];
-
-    // Hardcoded brewery coordinates (safe, no user input involved)
-    const COORDS: Record<string, { lat: number; lng: number }> = {
+    // Known brewery coordinates (for local DB data)
+    const KNOWN_COORDS: Record<string, { lat: number; lng: number }> = {
       "Russian River Brewing": { lat: 38.44, lng: -122.71 },
       "The Alchemist": { lat: 44.26, lng: -72.57 },
       "Three Floyds Brewing": { lat: 41.61, lng: -87.42 },
@@ -66,28 +73,28 @@ export async function GET(request: NextRequest) {
       "Cigar City Brewing": { lat: 27.97, lng: -82.46 },
       "BrewDog": { lat: 57.15, lng: -2.10 },
       "Mikkeller": { lat: 55.67, lng: 12.56 },
+      "Guinness": { lat: 53.34, lng: -6.29 },
+      "Weihenstephaner": { lat: 48.82, lng: 11.73 },
+      "Paulaner": { lat: 48.14, lng: 11.58 },
+      "Rochefort": { lat: 50.19, lng: 5.23 },
+      "Westmalle": { lat: 51.29, lng: 4.73 },
+      "Orval": { lat: 49.63, lng: 5.85 },
+      "Duvel Moortgat": { lat: 51.01, lng: 4.25 },
+      "Pilsner Urquell": { lat: 49.73, lng: 13.59 },
+      "Stella Artois": { lat: 50.63, lng: 5.48 },
+      "Hoegaarden": { lat: 50.77, lng: 4.88 },
+      "Kozel": { lat: 49.39, lng: 13.89 },
+      "Unibroue": { lat: 45.32, lng: 73.56 },
+      "Brasserie Dupont": { lat: 50.53, lng: 3.90 },
+      "Samuel Smith Old Brewery": { lat: 53.84, lng: -1.71 },
+      "Brouwerij Bosteels": { lat: 50.87, lng: 3.96 },
+      "Ayinger": { lat: 48.02, lng: 11.35 },
+      "Schneider Weisse": { lat: 48.12, lng: 11.84 },
       "To Øl": { lat: 55.67, lng: 12.56 },
       "Lervig": { lat: 58.97, lng: 5.73 },
       "Garage Project": { lat: -41.29, lng: 174.78 },
       "Epic Brewing Company": { lat: -36.85, lng: 174.76 },
       "Coopers Brewery": { lat: -34.93, lng: 138.60 },
-      "Weihenstephaner": { lat: 48.82, lng: 11.73 },
-      "Paulaner": { lat: 48.14, lng: 11.58 },
-      "Ayinger": { lat: 48.02, lng: 11.35 },
-      "Schneider Weisse": { lat: 48.12, lng: 11.84 },
-      "Rochefort": { lat: 50.19, lng: 5.23 },
-      "Westmalle": { lat: 51.29, lng: 4.73 },
-      "Orval": { lat: 49.63, lng: 5.85 },
-      "Duvel Moortgat": { lat: 51.01, lng: 4.25 },
-      "Brasserie Dupont": { lat: 50.53, lng: 3.90 },
-      "Unibroue": { lat: 45.32, lng: 73.56 },
-      "Brouwerij Bosteels": { lat: 50.87, lng: 3.96 },
-      "Guinness": { lat: 53.34, lng: -6.29 },
-      "Samuel Smith Old Brewery": { lat: 53.84, lng: -1.71 },
-      "Pilsner Urquell": { lat: 49.73, lng: 13.59 },
-      "Kozel": { lat: 49.39, lng: 13.89 },
-      "Stella Artois": { lat: 50.63, lng: 5.48 },
-      "Hoegaarden": { lat: 50.77, lng: 4.88 },
     };
 
     const ALIASES: Record<string, string> = {
@@ -100,11 +107,12 @@ export async function GET(request: NextRequest) {
       "Brouwerij Hoegaarden": "Hoegaarden",
       "Abbaye Notre-Dame d'Orval": "Orval",
       "Ayinger Privatbrauerei": "Ayinger",
-      "Brasserie Duyck": "Duvel Moortgat",
     };
 
+    const result: BreweryMapPoint[] = [];
+
     for (const [breweryName, data] of breweryMap) {
-      const coords = COORDS[breweryName] ?? COORDS[ALIASES[breweryName] ?? ''];
+      const coords = KNOWN_COORDS[breweryName] ?? KNOWN_COORDS[ALIASES[breweryName] ?? ''];
       if (!coords) continue;
 
       const sortedBeers = [...data.beers].sort((a, b) => b.rating - a.rating);
@@ -115,16 +123,76 @@ export async function GET(request: NextRequest) {
         id: breweryName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
         name: breweryName,
         country: data.country,
+        city: '',
         lat: coords.lat,
         lng: coords.lng,
         beerCount: data.beers.length,
         topBeer: topBeer.name,
         topBeerId: topBeer.id,
         avgRating: Math.round(avgRating * 100) / 100,
+        source: 'local',
       });
     }
 
+    // --- Source 2: Open Brewery DB (real brewery locations worldwide) ---
+    try {
+      const countries = ['United States', 'Belgium', 'Germany', 'United Kingdom', 'Czech Republic', 'Netherlands', 'Ireland', 'Denmark', 'Japan', 'Australia'];
+      const apiBreweries = await Promise.allSettled(
+        countries.map(c => searchBreweries({ country: c, perPage: 8 }))
+      );
+
+      const existingIds = new Set(result.map(r => r.name.toLowerCase()));
+
+      for (const res of apiBreweries) {
+        if (res.status !== 'fulfilled') continue;
+        for (const b of res.value) {
+          if (!b.latitude || !b.longitude) continue;
+          if (b.name.length < 3) continue;
+
+          // Try to find beers from local DB for this brewery name
+          const bNameLower = b.name.toLowerCase();
+          let beerMatch = beers.find(beer => {
+            const brewLower = beer.brewery.toLowerCase();
+            return brewLower.includes(bNameLower) || bNameLower.includes(brewLower);
+          });
+
+          // If no local match, try PunkAPI for BrewDog beers
+          if (!beerMatch && bNameLower.includes('brewdog')) {
+            const punkBeers = await searchPunkBeers('punk', 1, 3);
+            if (punkBeers.length > 0) {
+              beerMatch = { id: `punk-${punkBeers[0].id}`, name: punkBeers[0].name, rating: 3.8 };
+            }
+          }
+
+          const key = b.name.toLowerCase();
+          if (existingIds.has(key)) continue;
+          existingIds.add(key);
+
+          result.push({
+            id: b.id,
+            name: b.name,
+            country: `${getCountryFlag(b.country)} ${b.country}`,
+            city: b.city,
+            lat: b.latitude,
+            lng: b.longitude,
+            beerCount: beerMatch ? 1 : 0,
+            topBeer: beerMatch?.name || '',
+            topBeerId: beerMatch?.id || '',
+            avgRating: beerMatch?.rating || 0,
+            source: 'api',
+            breweryType: b.brewery_type,
+            website: b.website_url,
+          });
+        }
+      }
+    } catch (error) {
+      console.log('[Map] Open Brewery DB unavailable, using local data only');
+    }
+
     result.sort((a, b) => b.beerCount - a.beerCount);
+
+    cachedMapData = result as unknown as Array<Record<string, unknown>>;
+    cacheTimestamp = Date.now();
 
     return NextResponse.json(result);
   } catch (error) {
