@@ -5,12 +5,13 @@ import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { BackButton } from "@/components/beer/back-button";
+import { useBeerStore } from "@/store/beer-store";
 import {
   Beer as BeerIcon,
   Star,
   Trophy,
   Globe,
+  ArrowLeft,
 } from "lucide-react";
 
 /* ── Types ──────────────────────────────────────── */
@@ -186,6 +187,7 @@ function HBar({
 export function EnhancedStats() {
   const [data, setData] = useState<ChartsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const store = useBeerStore();
 
   useEffect(() => {
     async function fetchCharts() {
@@ -242,7 +244,13 @@ export function EnhancedStats() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <BackButton />
+        <button
+          onClick={() => store.setView("home")}
+          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Назад
+        </button>
         <Skeleton className="h-8 w-48 rounded-lg" />
         <div className="grid grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -269,7 +277,13 @@ export function EnhancedStats() {
 
   return (
     <div className="space-y-6 pb-8">
-      <BackButton />
+      <button
+        onClick={() => store.setView("home")}
+        className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Назад
+      </button>
 
       {/* Header */}
       <motion.div

@@ -25,7 +25,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: 'Укажите "text" (название пива) или "image" (base64 фото)' },
+        { status: 400 }
+      );
+    }
     const { image, text } = body as { image?: string; text?: string };
 
     // --- Text-based search ---
@@ -42,9 +50,9 @@ export async function POST(request: NextRequest) {
       const localMatches = await db.beer.findMany({
         where: {
           OR: [
-            { name: { contains: query, mode: 'insensitive' } },
-            { brewery: { contains: query, mode: 'insensitive' } },
-            { style: { contains: query, mode: 'insensitive' } },
+            { name: { contains: query } },
+            { brewery: { contains: query } },
+            { style: { contains: query } },
           ],
         },
         orderBy: { rating: 'desc' },

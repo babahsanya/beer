@@ -1337,7 +1337,6 @@ export default function Home() {
               exit="exit"
               transition={{ duration: 0.3 }}
             >
-              <BackButton onClick={() => setView("home")} />
               <JournalView />
             </motion.div>
           )}
@@ -1352,7 +1351,6 @@ export default function Home() {
               exit="exit"
               transition={{ duration: 0.3 }}
             >
-              <BackButton onClick={() => setView("home")} />
               <BeerRoulette />
             </motion.div>
           )}

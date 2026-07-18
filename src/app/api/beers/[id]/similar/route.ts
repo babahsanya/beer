@@ -101,7 +101,8 @@ export async function GET(
         const breweryBonus = beer.brewery === currentBeer.brewery ? 0.15 : 0;
 
         const similarity = Math.min(0.99, Math.round((styleScore * 0.5 + abvScore * 0.35 + countryBonus + breweryBonus) * 100) / 100);
-        return { ...beer, similarity };
+        const { _styleOverlap, ...cleanBeer } = beer as Record<string, unknown> & { _styleOverlap?: number };
+        return { ...cleanBeer, similarity };
       })
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 5);

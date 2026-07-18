@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBeerStore } from "@/store/beer-store";
 import type { Beer } from "@/types/beer";
-import { Star, Loader2, RotateCcw } from "lucide-react";
+import { Star, Loader2, RotateCcw, ArrowLeft } from "lucide-react";
 
 // ---------- Wheel Configuration ----------
 const SEGMENTS = [
@@ -217,10 +217,20 @@ export function BeerRoulette() {
   const cy = 200;
   const outerR = 190;
   const innerR = 70;
+  const { goHome } = useBeerStore();
   const svgSize = 400;
 
   return (
     <div className="space-y-6">
+      {/* Back button */}
+      <button
+        onClick={goHome}
+        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Назад
+      </button>
+
       {/* Title */}
       <div className="text-center space-y-2">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
-import { searchBreweries as searchOpenBreweries, getCountryFlag } from '@/lib/brewerydb';
+import {
+  searchBreweries as searchOpenBreweries,
+} from '@/lib/brewerydb';
 import {
   searchBreweriesCached,
   isUntappdAvailable,
   localizeCountry,
 } from '@/lib/untappd';
-import type { UntappdBrewery } from '@/lib/untappd';
 
 // Cache brewery map data (refreshed every 30 minutes)
 let cachedMapData: Array<Record<string, unknown>> | null = null;
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
       "Bayerische Staatsbrauerei Weihenstephan": "Weihenstephaner",
       "Plzeňský Prazdroj": "Pilsner Urquell",
       "Brouwerij Westmalle": "Westmalle",
-      "Abbaye de Chimay": "Rochefort",
+      "Abbaye de Chimay": "Chimay",
       "Brasserie de Rochefort": "Rochefort",
       "Brouwerij Hoegaarden": "Hoegaarden",
       "Abbaye Notre-Dame d'Orval": "Orval",
@@ -226,7 +227,7 @@ export async function GET(request: NextRequest) {
           result.push({
             id: b.id,
             name: b.name,
-            country: `${getCountryFlag(b.country)} ${b.country}`,
+            country: b.country,
             city: b.city,
             lat: b.latitude,
             lng: b.longitude,

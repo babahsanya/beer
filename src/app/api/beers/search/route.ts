@@ -383,7 +383,7 @@ export async function GET(request: NextRequest) {
       sources,
       localCount: localResult.total,
       onlineCount: onlineResults.length,
-      pagination: { total: totalMerged, limit, offset, hasMore: mergedBeers.length < totalMerged },
+      pagination: { total: totalMerged, limit, offset, hasMore: offset + mergedBeers.length < totalMerged },
     });
   } catch (error) {
     console.error('Unified search error:', error);

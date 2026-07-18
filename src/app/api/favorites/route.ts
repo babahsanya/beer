@@ -35,7 +35,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
     }
 
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: 'Укажите корректный beerId' },
+        { status: 400 }
+      );
+    }
     const { beerId } = body;
 
     if (!beerId || typeof beerId !== 'string' || beerId.length > 100) {

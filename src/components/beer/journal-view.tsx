@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { BackButton } from "@/components/beer/back-button";
+import { useBeerStore } from "@/store/beer-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -706,6 +708,7 @@ export function JournalView() {
 
   return (
     <div className="space-y-4">
+      <BackButton onClick={() => useBeerStore.getState().goHome()} />
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
