@@ -5,7 +5,7 @@ const globalForPrisma = globalThis as unknown as {
   _schemaVersion: number
 }
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 if (process.env.NODE_ENV !== 'production' && globalForPrisma._schemaVersion !== SCHEMA_VERSION) {
   if (globalForPrisma.prisma) {

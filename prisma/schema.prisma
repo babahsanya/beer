@@ -74,6 +74,27 @@ model ViewHistory {
   beer      Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
 }
 
+model TastingEntry {
+  id              String   @id @default(cuid())
+  beerId          String   @default("")
+  beerName        String   @default("")
+  beerStyle       String   @default("")
+  brewery         String   @default("")
+  abv             Float    @default(0)
+  country         String   @default("")
+  personalRating  Int      @default(0)
+  aroma           Int      @default(0)
+  taste           Int      @default(0)
+  appearance      Int      @default(0)
+  mouthfeel       Int      @default(0)
+  comment         String   @default("")
+  location        String   @default("")
+  glassType       String   @default("")
+  wouldBuyAgain   Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 model UserAchievement {
   id          String   @id @default(cuid())
   key         String   @unique

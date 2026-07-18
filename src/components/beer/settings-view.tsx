@@ -22,6 +22,7 @@ import {
   Heart,
   RefreshCw,
 } from "lucide-react";
+import { DataManager } from "@/components/beer/data-manager";
 import { useToast } from "@/hooks/use-toast";
 
 const containerVariants = {
@@ -248,6 +249,11 @@ export function SettingsView() {
               </div>
             </CardContent>
           </Card>
+        </motion.div>
+
+        {/* Data Manager (Export / Import) */}
+        <motion.div variants={itemVariants}>
+          <DataManager />
         </motion.div>
 
         {/* Privacy */}

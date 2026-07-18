@@ -138,6 +138,9 @@ export type AppView =
   | "calculator"
   | "map"
   | "achievements"
-  | "recommendations";
+  | "recommendations"
+  | "analytics"
+  | "roulette"
+  | "journal";
 
 export type TrendingCategory = "craft" | "macro" | "global" | "weekly";

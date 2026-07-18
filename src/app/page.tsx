@@ -35,6 +35,9 @@ import QuizView from "@/components/beer/quiz-view";
 import { CalculatorView } from "@/components/beer/calculator-view";
 import { AchievementsView } from "@/components/beer/achievements-view";
 import { RecommendationsView } from "@/components/beer/recommendations-view";
+import { EnhancedStats } from "@/components/beer/enhanced-stats";
+import { BeerRoulette } from "@/components/beer/beer-roulette";
+import { JournalView } from "@/components/beer/journal-view";
 import { StyleDistribution } from "@/components/beer/style-distribution";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -72,6 +75,9 @@ import {
   Calculator,
   Award,
   Sparkles,
+  Dices,
+  BarChart3,
+  BookOpen,
 } from "lucide-react";
 import type { Beer, SearchHistory } from "@/types/beer";
 
@@ -493,6 +499,14 @@ export default function Home() {
       color: "from-emerald-400 to-emerald-600",
     },
     {
+      icon: <BarChart3 className="h-6 w-6" />,
+      emoji: "📊",
+      title: "Аналитика",
+      subtitle: "Графики и статистика",
+      action: () => setView("analytics"),
+      color: "from-emerald-500 to-teal-600",
+    },
+    {
       icon: <HelpCircle className="h-6 w-6" />,
       emoji: "❓",
       title: "Справка",
@@ -507,6 +521,22 @@ export default function Home() {
       subtitle: "Управление данными",
       action: () => setView("settings"),
       color: "from-stone-400 to-stone-600",
+    },
+    {
+      icon: <BookOpen className="h-6 w-6" />,
+      emoji: "📝",
+      title: "Журнал",
+      subtitle: "Дегустационный дневник",
+      action: () => setView("journal"),
+      color: "from-amber-400 to-amber-600",
+    },
+    {
+      icon: <Dices className="h-6 w-6" />,
+      emoji: "🎰",
+      title: "Рулетка",
+      subtitle: "Пивная рулетка",
+      action: () => setView("roulette"),
+      color: "from-rose-500 to-orange-500",
     },
   ];
 
@@ -1280,6 +1310,50 @@ export default function Home() {
             >
               <BackButton onClick={() => setView("home")} />
               <RecommendationsView />
+            </motion.div>
+          )}
+
+          {/* ===== ANALYTICS VIEW ===== */}
+          {currentView === "analytics" && (
+            <motion.div
+              key="analytics"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <EnhancedStats />
+            </motion.div>
+          )}
+
+          {/* ===== JOURNAL VIEW ===== */}
+          {currentView === "journal" && (
+            <motion.div
+              key="journal"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <BackButton onClick={() => setView("home")} />
+              <JournalView />
+            </motion.div>
+          )}
+
+          {/* ===== ROULETTE VIEW ===== */}
+          {currentView === "roulette" && (
+            <motion.div
+              key="roulette"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <BackButton onClick={() => setView("home")} />
+              <BeerRoulette />
             </motion.div>
           )}
         </AnimatePresence>

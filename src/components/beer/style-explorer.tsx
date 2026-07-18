@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RatingStars } from "./rating-stars";
+import { StyleProgress } from "./style-progress";
 import { Search, X, LayoutGrid } from "lucide-react";
 import { motion } from "framer-motion";
 import type { StyleInfo, Beer } from "@/types/beer";
@@ -65,7 +66,12 @@ export function StyleExplorer({ onSearchStyle }: StyleExplorerProps) {
   }
 
   return (
-    <div className="space-y-4 dot-pattern-bg rounded-2xl p-1">
+    <div className="space-y-8">
+      {/* Style Progress Tracker */}
+      <StyleProgress />
+
+      {/* Existing Style Explorer */}
+      <div className="space-y-4 dot-pattern-bg rounded-2xl p-1">
       {/* Total count */}
       <p className="text-sm text-muted-foreground">
         Всего <span className="font-semibold text-foreground">{totalBeers}</span>{" "}
@@ -134,6 +140,7 @@ export function StyleExplorer({ onSearchStyle }: StyleExplorerProps) {
           <p className="text-sm font-medium">Стили не найдены</p>
         </div>
       )}
+      </div>
     </div>
   );
 }
