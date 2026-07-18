@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { aiLimiter, getClientIp } from '@/lib/rate-limit';
-import {
-  searchBeers,
-  normalizeUntappdBeer,
-  isUntappdAvailable,
-} from '@/lib/untappd';
+import { searchBreweriesCached, isAvailable as isOBDAvailable, getCountryFlag, localizeBreweryType } from '@/lib/brewerydb';
+import { searchBeers, normalizeUntappdBeer, isUntappdAvailable } from '@/lib/untappd';
 
 const MAX_IMAGE_BASE64_LENGTH = 2_800_000;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -13,13 +10,9 @@ const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif
 /**
  * POST /api/recognize
  *
- * Since we no longer have VLM (z-ai-web-dev-sdk is sandbox-only),
- * this endpoint now accepts:
- * 1. { image: base64 } — returns a message that image recognition requires a VLM provider
- * 2. { text: "beer name" } — searches Untappd by text (useful as alternative to camera)
- *
- * In the future, you can integrate Google Vision, AWS Rekognition, or similar
- * to extract text from labels and then search Untappd.
+ * Supports:
+ * 1. { text: "beer name" } — searches OBD (breweries) + Untappd (if configured) + local DB
+ * 2. { image: base64 } — returns message that image recognition requires a VLM provider
  */
 export async function POST(request: NextRequest) {
   try {
@@ -35,79 +28,75 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { image, text } = body as { image?: string; text?: string };
 
-    // --- Text-based recognition (search Untappd) ---
+    // --- Text-based search ---
     if (text && typeof text === 'string') {
       const query = text.trim().slice(0, 200);
       if (query.length < 2) {
-        return NextResponse.json(
-          { error: 'Введите минимум 2 символа' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Введите минимум 2 символа' }, { status: 400 });
       }
 
-      if (!(await isUntappdAvailable())) {
-        // Fallback to local DB
-        const localMatches = await db.beer.findMany({
-          where: {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { brewery: { contains: query, mode: 'insensitive' } },
-              { style: { contains: query, mode: 'insensitive' } },
-            ],
-          },
-          orderBy: { rating: 'desc' },
-          take: 5,
-        });
+      const results: Array<Record<string, unknown>> = [];
+      let method = 'local';
 
-        return NextResponse.json({
-          matches: localMatches.map((beer, i) => ({
-            ...beer,
-            confidence: Math.max(30, 90 - i * 15),
-          })),
-          method: 'local',
-        });
-      }
-
-      const items = await searchBeers(query, 5);
-      const matches = items.map((item, i) => ({
-        ...normalizeUntappdBeer(item),
-        confidence: Math.max(30, 95 - i * 15),
-      }));
-
-      // Also search local DB and merge
+      // 1) Local DB
       const localMatches = await db.beer.findMany({
         where: {
           OR: [
             { name: { contains: query, mode: 'insensitive' } },
             { brewery: { contains: query, mode: 'insensitive' } },
+            { style: { contains: query, mode: 'insensitive' } },
           ],
         },
         orderBy: { rating: 'desc' },
-        take: 3,
+        take: 5,
       });
 
-      const localNames = new Set(localMatches.map(b => b.name.toLowerCase()));
       for (const beer of localMatches) {
-        if (!localNames.has(beer.name.toLowerCase()) || !matches.some(m => m.name.toLowerCase() === beer.name.toLowerCase())) {
-          if (!matches.some(m => m.name.toLowerCase() === beer.name.toLowerCase())) {
-            matches.push({
-              ...beer,
-              id: beer.id,
-              confidence: 50,
-              _source: 'local',
-            });
-          }
+        results.push({ ...beer, confidence: 95, _source: 'local', _type: 'beer' });
+      }
+
+      // 2) Open Brewery DB (always available, no key)
+      if (results.length < 5 && await isOBDAvailable()) {
+        const breweries = await searchBreweriesCached(query, 5);
+        for (const b of breweries) {
+          if (results.some(r => String(r.name).toLowerCase() === b.name.toLowerCase())) continue;
+          results.push({
+            id: `obd-${b.id}`,
+            name: b.name,
+            style: localizeBreweryType(b.brewery_type),
+            abv: 0, ibu: 0,
+            country: `${getCountryFlag(b.country)} ${b.country}`,
+            brewery: b.name,
+            description: [b.street, b.postal_code, b.city, b.state_province, b.country].filter(Boolean).join(', '),
+            label: '',
+            rating: 0, ratingCount: 0,
+            totalCheckins: 0, monthlyCheckins: 0, dailyCheckins: 0,
+            source: 'openbrewerydb', _source: 'online', _type: 'brewery',
+            confidence: 70,
+            city: b.city,
+            website: b.website_url,
+            breweryType: b.brewery_type,
+            lat: b.latitude, lng: b.longitude,
+          });
+          method = 'openbrewerydb';
         }
       }
 
-      return NextResponse.json({
-        matches: matches.slice(0, 5),
-        method: 'untappd',
-      });
+      // 3) Untappd (if configured)
+      if (results.length < 5 && await isUntappdAvailable()) {
+        const items = await searchBeers(query, 5);
+        for (const item of items) {
+          if (results.some(r => String(r.name).toLowerCase() === item.beer.beer_name.toLowerCase())) continue;
+          const normalized = normalizeUntappdBeer(item);
+          results.push({ ...normalized, confidence: 90, _type: 'beer' });
+          method = 'untappd';
+        }
+      }
+
+      return NextResponse.json({ matches: results.slice(0, 5), method });
     }
 
-    // --- Image-based "recognition" ---
-    // VLM is not available outside sandbox. Return helpful error.
+    // --- Image-based (VLM not available outside sandbox) ---
     if (image && typeof image === 'string') {
       if (image.length > MAX_IMAGE_BASE64_LENGTH) {
         return NextResponse.json({ error: 'Изображение слишком большое (макс 2 МБ)' }, { status: 400 });
@@ -116,17 +105,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Изображение повреждено' }, { status: 400 });
       }
 
-      if (image.startsWith('data:')) {
-        const mimeMatch = image.match(/^data:([^;]+);/);
-        if (mimeMatch && !ALLOWED_IMAGE_TYPES.includes(mimeMatch[1])) {
-          return NextResponse.json({ error: 'Неподдерживаемый формат (нужен JPEG/PNG/WebP/GIF)' }, { status: 400 });
-        }
-      }
-
       return NextResponse.json({
         matches: [],
         vlmResult: null,
-        message: 'Распознавание по фото временно недоступно. Попробуйте текстовый поиск по названию пива.',
+        message: 'Распознавание по фото требует подключения VLM-провайдера (Google Vision, AWS Rekognition). Попробуйте текстовый поиск по названию пива.',
       });
     }
 

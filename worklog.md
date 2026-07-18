@@ -876,3 +876,50 @@ Unresolved / Для следующей фазы:
 - VLM распознавание по фото: можно подключить Google Vision, AWS Rekognition или аналоги
 - Seed скрипт (prisma/seed.ts) ещё ссылается на punkapi — нужно переписать на локальные данные или Untappd
 - `/api/map` кэш обновляется раз в 30 мин — можно добавить принудительную инвалидацию
+
+---
+Task ID: 12
+Agent: Main Developer
+Task: Переключить онлайн-поиск на Open Brewery DB (бесплатно, без ключа)
+
+Work Log:
+- Расширен `src/lib/brewerydb.ts`:
+  - Добавлен `searchBreweriesByText()` — полнотекстовый поиск `/breweries/search`
+  - Добавлен `autocompleteBreweries()` — автодополнение `/breweries/autocomplete`
+  - Добавлен `getBrewery(id)` — детали пивоварни
+  - Добавлен `isAvailable()` — проверка доступности API
+  - Добавлен `searchBreweriesCached()` — кэш 30 мин, до 300 записей
+  - Добавлен `localizeBreweryType()` — типы пивоварен на русский (micro→Микропивоварня и т.д.)
+  - Добавлен `formatCountryWithFlag()` — флаг + название страны
+  - Исправлен syntax error: `beer garden` → `'beer garden'` (unquoted key)
+- Переписан `src/app/api/beers/search/route.ts`:
+  - `searchOnlineOBD()` — основной онлайн-поиск через Open Brewery DB
+  - `breweryToResult()` — конвертация пивоварни в формат результата с `_type: 'brewery'`
+  - `searchOnlineUntappd()` — приоритетный поиск если Untappd ключ настроен
+  - Логика: local DB → Untappd (если есть ключ) → Open Brewery DB (всегда)
+  - OBD результаты показывают: тип пивоварни, город, страну, сайт, координаты
+- Переписан `src/app/api/recognize/route.ts`:
+  - Текстовый поиск: local DB → OBD → Untappd (если есть ключ)
+  - Убраны все зависимости от VLM/z-ai-web-dev-sdk
+- Обновлён `src/components/beer/beer-card.tsx`:
+  - Добавлена поддержка `_type: 'brewery'` результатов
+  - Пивоварни показываются с иконкой Building2 (зелёная граница)
+  - Бейдж "Пивоварня" вместо "Онлайн" для brewery-результатов
+  - Показывает тип пивоварни (Микропивоварня, Региональная и т.д.)
+  - Бейдж "На карте" если есть координаты
+  - Кнопка "Открыть сайт" для перехода на сайт пивоварни
+  - Нет рейтинга/ABV/чекинов для пивоварен
+  - Кнопка сравнения скрыта для пивоварен
+- Обновлён `.env.example`:
+  - Untappd теперь OPTIONAL (закомментирован)
+  - Open Brewery DB: "FREE, no key needed"
+  - Добавлено описание что OBD используется автоматически
+
+Stage Summary:
+- **Приложение полностью работает БЕЗ API ключей**
+- Онлайн-поиск через Open Brewery DB — 12,000+ пивоварен, бесплатно, без регистрации
+- Результаты поиска: локальные пива (с рейтингами) + пивоварни из OBD (с адресами и сайтами)
+- Untappd — опциональное усиление: если задать UNTAPPD_CLIENT_ID/SECRET, онлайн-поиск покажет конкретные пива с рейтингами
+- BeerCard корректно отображает оба типа результатов
+- Браузерная проверка: поиск "Sierra Nevada" → 2 пива из БД + 2 пивоварни из OBD
+- Lint: чисто, 0 ошибок
