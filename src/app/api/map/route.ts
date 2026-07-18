@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
-import { searchBreweries, getCountryFlag } from '@/lib/brewerydb';
-import { searchPunkBeers } from '@/lib/punkapi';
+import { searchBreweries as searchOpenBreweries, getCountryFlag } from '@/lib/brewerydb';
+import {
+  searchBreweriesCached,
+  isUntappdAvailable,
+  localizeCountry,
+} from '@/lib/untappd';
+import type { UntappdBrewery } from '@/lib/untappd';
 
 // Cache brewery map data (refreshed every 30 minutes)
 let cachedMapData: Array<Record<string, unknown>> | null = null;
@@ -20,9 +25,11 @@ interface BreweryMapPoint {
   topBeer: string;
   topBeerId: string;
   avgRating: number;
-  source: 'local' | 'api';
+  source: 'local' | 'api' | 'untappd';
   breweryType?: string;
   website?: string | null;
+  breweryLabel?: string;
+  breweryUrl?: string;
 }
 
 export async function GET(request: NextRequest) {
@@ -134,14 +141,72 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // --- Source 2: Open Brewery DB (real brewery locations worldwide) ---
+    const existingNames = new Set(result.map(r => r.name.toLowerCase()));
+
+    // --- Source 2: Untappd Brewery Search (real data with coordinates) ---
+    if (await isUntappdAvailable()) {
+      try {
+        const popularBreweries = [
+          'BrewDog', 'Guinness', 'Heineken', 'Sierra Nevada', 'Stone Brewing',
+          'Bell\'s Brewery', 'Founders', 'Dogfish Head', 'Chimay', 'Rochefort',
+          'Weihenstephan', 'Paulaner', 'Pilsner Urquell', 'Stella Artois',
+          'Hoegaarden', 'Duvel', 'Westmalle', 'Orval', 'Mikkeller',
+          'To Øl', 'Lervig', 'Garage Project', 'Coopers',
+        ];
+
+        const untappdBreweries = await Promise.allSettled(
+          popularBreweries.map(name => searchBreweriesCached(name, 3))
+        );
+
+        for (const res of untappdBreweries) {
+          if (res.status !== 'fulfilled') continue;
+          for (const item of res.value) {
+            const brewery = item.brewery;
+            const loc = brewery.location;
+            if (!loc?.lat || !loc?.lng) continue;
+            if (loc.lat === 0 && loc.lng === 0) continue;
+
+            const nameLower = brewery.brewery_name.toLowerCase();
+            if (existingNames.has(nameLower)) continue;
+
+            // Find local beer match
+            let beerMatch = beers.find(beer => {
+              const brewLower = beer.brewery.toLowerCase();
+              return brewLower.includes(nameLower) || nameLower.includes(brewLower);
+            });
+
+            existingNames.add(nameLower);
+
+            result.push({
+              id: `untappd-${brewery.brewery_id}`,
+              name: brewery.brewery_name,
+              country: localizeCountry(brewery.country_name),
+              city: loc.brewery_city || '',
+              lat: loc.lat,
+              lng: loc.lng,
+              beerCount: beerMatch ? 1 : (item.brewery as Record<string, unknown>).total_count ? Number((item.brewery as Record<string, unknown>).total_count) || 0 : 0,
+              topBeer: beerMatch?.name || '',
+              topBeerId: beerMatch?.id || '',
+              avgRating: beerMatch?.rating || (item.brewery as Record<string, unknown>).rating_score ? Number((item.brewery as Record<string, unknown>).rating_score) || 0 : 0,
+              source: 'untappd',
+              breweryType: (item.brewery as Record<string, unknown>).brewery_type as string | undefined,
+              website: brewery.contact?.url || null,
+              breweryLabel: brewery.brewery_label,
+              breweryUrl: brewery.contact?.url,
+            });
+          }
+        }
+      } catch (error) {
+        console.log('[Map] Untappd brewery search unavailable');
+      }
+    }
+
+    // --- Source 3: Open Brewery DB (real brewery locations, no auth) ---
     try {
       const countries = ['United States', 'Belgium', 'Germany', 'United Kingdom', 'Czech Republic', 'Netherlands', 'Ireland', 'Denmark', 'Japan', 'Australia'];
       const apiBreweries = await Promise.allSettled(
-        countries.map(c => searchBreweries({ country: c, perPage: 8 }))
+        countries.map(c => searchOpenBreweries({ country: c, perPage: 8 }))
       );
-
-      const existingIds = new Set(result.map(r => r.name.toLowerCase()));
 
       for (const res of apiBreweries) {
         if (res.status !== 'fulfilled') continue;
@@ -149,24 +214,14 @@ export async function GET(request: NextRequest) {
           if (!b.latitude || !b.longitude) continue;
           if (b.name.length < 3) continue;
 
-          // Try to find beers from local DB for this brewery name
-          const bNameLower = b.name.toLowerCase();
+          const key = b.name.toLowerCase();
+          if (existingNames.has(key)) continue;
+          existingNames.add(key);
+
           let beerMatch = beers.find(beer => {
             const brewLower = beer.brewery.toLowerCase();
-            return brewLower.includes(bNameLower) || bNameLower.includes(brewLower);
+            return brewLower.includes(key) || key.includes(brewLower);
           });
-
-          // If no local match, try PunkAPI for BrewDog beers
-          if (!beerMatch && bNameLower.includes('brewdog')) {
-            const punkBeers = await searchPunkBeers('punk', 1, 3);
-            if (punkBeers.length > 0) {
-              beerMatch = { id: `punk-${punkBeers[0].id}`, name: punkBeers[0].name, rating: 3.8 };
-            }
-          }
-
-          const key = b.name.toLowerCase();
-          if (existingIds.has(key)) continue;
-          existingIds.add(key);
 
           result.push({
             id: b.id,

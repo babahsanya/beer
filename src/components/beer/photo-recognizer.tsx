@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,8 @@ import {
   Loader2,
   Lightbulb,
   ImageIcon,
+  Search,
+  ExternalLink,
 } from "lucide-react";
 import { useBeerStore } from "@/store/beer-store";
 import { motion, AnimatePresence } from "framer-motion";
@@ -32,7 +34,7 @@ interface RecognitionMatch {
 }
 
 export function PhotoRecognizer() {
-  const { selectBeer } = useBeerStore();
+  const { selectBeer, setView, setSearchQuery } = useBeerStore();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,7 +52,6 @@ export function PhotoRecognizer() {
     reader.onload = (e) => {
       const result = e.target?.result as string;
       setImagePreview(result);
-      // Extract base64 from data URL
       const base64 = result.split(",")[1];
       setImageBase64(base64);
       setResults([]);
@@ -87,8 +88,15 @@ export function PhotoRecognizer() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: imageBase64 }),
       });
-      if (!res.ok) throw new Error("Ошибка распознавания");
       const data = await res.json();
+
+      // If VLM unavailable, show helpful message
+      if (data.message) {
+        setError(data.message);
+        return;
+      }
+
+      if (!res.ok) throw new Error("Ошибка распознавания");
       setResults(data.matches || []);
       if (!data.matches?.length) {
         setError("Не удалось распознать этикетку");
@@ -108,15 +116,46 @@ export function PhotoRecognizer() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const goToSearch = () => {
+    setView("search");
+  };
+
   const tips = [
-    "Целиком этикетка в кадре",
-    "Хорошее освещение",
-    "Без бликов и теней",
-    "Чёткий фокус",
+    "Распознавание по фото требует подключения VLM-провайдера",
+    "Используйте текстовый поиск по названию пива",
+    "Данные из Untappd — миллионы пив со всего мира",
+    "Введите название на английском для лучших результатов",
   ];
 
   return (
     <div className="space-y-4">
+      {/* Text Search Alternative */}
+      <Card className="border-amber-200 dark:border-amber-900/50 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20">
+        <CardContent className="p-5">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+              <Search className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-foreground text-sm">
+                Поиск по названию
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Введите название пива или пивоварни — поиск по базе Untappd
+                (миллионы пив, рейтинги, чекины)
+              </p>
+              <Button
+                onClick={goToSearch}
+                className="mt-3 gap-2 bg-amber-500 hover:bg-amber-600 h-9 text-sm"
+              >
+                <Search className="h-4 w-4" />
+                Перейти к поиску
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Upload Area */}
       <AnimatePresence mode="wait">
         {!imagePreview ? (
@@ -202,12 +241,12 @@ export function PhotoRecognizer() {
                   {loading ? (
                     <>
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      Распознаю этикетку...
+                      Ищу совпадения...
                     </>
                   ) : (
                     <>
                       <ImageIcon className="h-5 w-5" />
-                      Распознать
+                      Найти пиво
                     </>
                   )}
                 </Button>
@@ -223,7 +262,7 @@ export function PhotoRecognizer() {
           <CardContent className="p-6 text-center">
             <Loader2 className="h-8 w-8 text-amber-500 animate-spin mx-auto" />
             <p className="mt-3 text-sm text-muted-foreground">
-              ⏳ Распознаю этикетку...
+              Ищу совпадения в базе Untappd...
             </p>
           </CardContent>
         </Card>
@@ -232,8 +271,11 @@ export function PhotoRecognizer() {
       {/* Results */}
       {results.length > 0 && (
         <div className="space-y-3">
-          <h3 className="font-semibold text-foreground">
-            Результаты распознавания
+          <h3 className="font-semibold text-foreground flex items-center gap-2">
+            Найдено в Untappd
+            <Badge variant="secondary" className="text-xs">
+              {results.length}
+            </Badge>
           </h3>
           {results.map((match) => (
             <Card
@@ -248,13 +290,10 @@ export function PhotoRecognizer() {
                       {match.beer.name}
                     </h4>
                     <p className="text-xs text-muted-foreground">
-                      {match.beer.brewery} • {match.beer.style}
+                      {match.beer.brewery} &bull; {match.beer.style}
                     </p>
                     <div className="mt-1">
-                      <RatingStars
-                        rating={match.beer.rating}
-                        size={12}
-                      />
+                      <RatingStars rating={match.beer.rating} size={12} />
                     </div>
                   </div>
                   <Badge
@@ -277,16 +316,37 @@ export function PhotoRecognizer() {
 
       {/* Error */}
       {error && !loading && (
-        <EmptyState title={error} description="Попробуйте загрузить другое фото" />
+        <Card className="border-amber-200/50 dark:border-amber-900/30">
+          <CardContent className="p-5">
+            <div className="flex items-start gap-3">
+              <Lightbulb className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-foreground">{error}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Попробуйте текстовый поиск по названию пива
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3 gap-2"
+                  onClick={goToSearch}
+                >
+                  <Search className="h-3 w-3" />
+                  Поиск по названию
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Tips */}
-      {!results.length && !loading && (
+      {!results.length && !loading && !error && (
         <Card className="border-amber-200/50 dark:border-amber-900/30 bg-amber-50/50 dark:bg-amber-900/10">
           <CardContent className="p-4">
             <h4 className="text-sm font-medium text-foreground flex items-center gap-2 mb-3">
               <Lightbulb className="h-4 w-4 text-amber-500" />
-              Советы для лучшего распознавания
+              Подсказки
             </h4>
             <ul className="space-y-2">
               {tips.map((tip) => (

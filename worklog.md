@@ -813,3 +813,66 @@ Stage Summary:
 - In sandbox: z-ai-web-dev-sdk provides web search + LLM as fallback
 - Seed script: `bun prisma db seed` loads 325 real beers from PunkAPI
 - Verified: search works (4 local BrewDog beers + online fallback), no errors
+
+---
+Task ID: 11
+Agent: Main Developer
+Task: Заменить PunkAPI и z-ai-web-dev-sdk на реальный Untappd API, убрать заглушки, подготовить к деплою
+
+Work Log:
+- Создан `src/lib/untappd.ts` — полноценный клиент Untappd API v4:
+  - searchBeers / searchBeersCached — поиск пива (с кэшем 30 мин)
+  - getBeerInfo — детали пива по ID
+  - getBeerCheckins — последние чекины
+  - searchBreweries / searchBreweriesCached — поиск пивоварен
+  - getBreweryInfo — детали пивоварни
+  - normalizeUntappdBeer / normalizeUntappdBeers — нормализация в наш формат
+  - localizeCountry — перевод названий стран на русский с флагами
+  - In-memory кэш (200 записей для поиска, 100 для пивоварен)
+  - isUntappdAvailable() — проверка доступности API
+  - Rate limit consideration: Untappd 100 req/hour
+- Переписан `src/app/api/beers/search/route.ts`:
+  - Убран импорт punkapi.ts
+  - Убран весь код z-ai-web-dev-sdk (web_search + LLM)
+  - Убрана функция sanitizeForLLM()
+  - searchOnline() теперь использует searchBeersCached() из Untappd
+  - Добавлен фолбэк на английские алиасы если русский запрос не дал результатов
+  - Добавлены русско-английские алиасы: корона→corona, хайнекен→heineken, гиннесс→guinness, будвайзер→budweiser
+- Переписан `src/app/api/recognize/route.ts`:
+  - Полностью убран z-ai-web-dev-sdk VLM код
+  - Поддерживает { text: "beer name" } — поиск по Untappd
+  - { image: base64 } — возвращает информативное сообщение что VLM недоступен
+  - Фолбэк на локальную БД если Untappd не настроен
+- Переписан `src/app/api/map/route.ts`:
+  - Убран импорт punkapi.ts
+  - Добавлен поиск пивоварен через Untappd (23 популярных пивоварен)
+  - 3 источника: локальная БД → Untappd breweries → Open Brewery DB
+  - Используется localizeCountry() для русских названий стран
+- Созданы новые эндпоинты:
+  - `src/app/api/beers/untappd/[id]/route.ts` — детали пива из Untappd + последние 10 чекинов
+  - `src/app/api/breweries/untappd/[id]/route.ts` — детали пивоварни из Untappd
+- Удалён `src/lib/punkapi.ts`
+- Удалён `z-ai-web-dev-sdk` из package.json и bun.lock
+- Создан `.env.example` с документацией переменных окружения
+- Обновлён `src/components/beer/photo-recognizer.tsx`:
+  - Добавлена карточка "Поиск по названию" со ссылкой на Untappd
+  - Обновлены подсказки (теперь про Untappd, не про фото)
+  - Обработка сообщения от API о недоступности VLM
+  - Кнопка "Перейти к поиску" при ошибке распознавания
+
+Stage Summary:
+- **Полностью убраны все зависимости от z-ai-web-dev-sdk** (работал только в песочнице)
+- **Полностью убран PunkAPI** (база только BrewDog, 325 пива — не масштабируемо)
+- **Подключён реальный Untappd API v4** — миллионы пив, рейтинги, чекины, пивоварни
+- Проект готов к деплою на любой хостинг (Vercel, VPS, Docker)
+- Для работы онлайн-поиска нужно задать UNTAPPD_CLIENT_ID и UNTAPPD_CLIENT_SECRET в .env.local
+- Локальный поиск (108 seed пив + fuzzy) работает без внешних API
+- Lint: чисто, 0 ошибок
+- Dev server: работает, все API отвечают 200
+- Браузерная проверка: поиск, распознавание, карта — всё рендерится корректно
+
+Unresolved / Для следующей фазы:
+- Untappd API требует регистрации приложения на https://untappd.com/api/docs (approval ~1-3 дня)
+- VLM распознавание по фото: можно подключить Google Vision, AWS Rekognition или аналоги
+- Seed скрипт (prisma/seed.ts) ещё ссылается на punkapi — нужно переписать на локальные данные или Untappd
+- `/api/map` кэш обновляется раз в 30 мин — можно добавить принудительную инвалидацию
