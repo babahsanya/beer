@@ -670,3 +670,49 @@ Stage Summary:
 - Achievements: 8 trackable achievements with auto-sync, progress tracking
 - Recommendations: style/country-based scoring from favorites
 - Lint passes clean, all APIs verified via curl
+---
+Task ID: 9
+Agent: Main Developer
+Task: Fix search to use real online data (web search + LLM parsing)
+
+Work Log:
+- Analyzed search architecture and found critical problems:
+  - Frontend ONLY called /api/beers/search (local SQLite with 35 seed beers)
+  - /api/untappd/search endpoint existed but was NEVER called from frontend
+  - NO Untappd API credentials configured (no UNTAPPD_CLIENT_ID/SECRET)
+  - Web search via z-ai-web-dev-sdk was dead code
+  - Result: app was just a 35-beer encyclopedia with no external data
+- Rewrote /api/beers/search/route.ts as UNIFIED search endpoint:
+  - Phase 1: Local SQLite search (LIKE %query% + bilingual RU→EN aliases + fuzzy Levenshtein fallback)
+  - Phase 2: Web search via z-ai-web-dev-sdk web_search function (parallel with local)
+  - Phase 3: LLM parsing via z-ai-web-dev-sdk chat.completions.create to extract structured beer data from web results
+  - Results merged: local first, online appended, deduplicated by name
+- Fixed critical SDK API issue: web_search returns array directly (not {results:[]})
+- Fixed critical SDK API issue: must use zai.chat.completions.create() not zai.functions.invoke('llm')
+- Updated frontend (page.tsx) to show source indicators: "База N" and "Онлайн N" badges
+- Updated BeerCard component to show "Онлайн" badge for online-sourced beers
+- Added English country name aliases to countries.ts (for online search results)
+- Added Database/Globe icons import to page.tsx
+- Re-seeded database: 108 beers, 361 reviews, 20 trending entries
+
+Stage Summary:
+- Search now finds ANY beer in the world via web search + LLM parsing
+- Partial matches work: "coro" → Corona Extra (local), "Guinness" → 2 local + 4 online
+- Russian queries work: "стаут" → 10 stouts via bilingual alias expansion
+- Online results include structured data: name, style, ABV, IBU, country, brewery, rating
+- Response includes sources array, localCount, onlineCount for UI indicators
+- ~3-5 second search time for online queries (web search + LLM)
+- Local-only search (&noweb=true) is instant
+
+Key files modified:
+- src/app/api/beers/search/route.ts (complete rewrite - unified search)
+- src/app/page.tsx (source indicators, _source stripping)
+- src/components/beer/beer-card.tsx (online badge)
+- src/lib/countries.ts (English country aliases)
+- prisma/seed.ts (expanded to 108 beers)
+
+Verified via agent-browser:
+- "Guinness" → 6 results (2 local + 4 online) ✓
+- "coro" → 1 result (Corona Extra, local) ✓  
+- "Chimay Blue" → 4 results (1 local + 3 online) ✓
+- Source badges "База" and "Онлайн" display correctly ✓

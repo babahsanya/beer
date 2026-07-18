@@ -61,6 +61,8 @@ import {
   Filter,
   Eye,
   Download,
+  Database,
+  Globe,
   HelpCircle,
   Trophy,
   Hash,
@@ -117,6 +119,9 @@ export default function Home() {
   const [searchResults, setSearchResultsLocal] = useState<Beer[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchOffset, setSearchOffset] = useState(0);
+  const [searchSources, setSearchSources] = useState<string[]>([]);
+  const [searchLocalCount, setSearchLocalCount] = useState(0);
+  const [searchOnlineCount, setSearchOnlineCount] = useState(0);
   const [sortBy, setSortBy] = useState("rating");
   const searchLimit = 20;
 
@@ -178,9 +183,16 @@ export default function Home() {
         );
         if (!res.ok) throw new Error("Ошибка поиска");
         const data = await res.json();
-        const beers: Beer[] = data.beers || [];
+        // Strip internal _source field before passing to Beer type
+        const beers: Beer[] = (data.beers || []).map((b: Record<string, unknown>) => {
+          const { _source, ...rest } = b;
+          return rest as Beer;
+        });
         if (offset === 0) {
           setSearchResultsLocal(beers);
+          setSearchSources(data.sources || []);
+          setSearchLocalCount(data.localCount || 0);
+          setSearchOnlineCount(data.onlineCount || 0);
         } else {
           setSearchResultsLocal((prev) => [...prev, ...beers]);
         }
@@ -936,12 +948,30 @@ export default function Home() {
                 )}
               </AnimatePresence>
 
-              {/* Results count + Sort */}
+              {/* Results count + Sort + Source indicator */}
               {!searchLoading && searchTotal > 0 && (
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    Найдено: {searchTotal.toLocaleString("ru-RU")} сортов
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm text-muted-foreground">
+                      Найдено: {searchTotal.toLocaleString("ru-RU")} сортов
+                    </p>
+                    {searchSources.length > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        {searchSources.includes('local') && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
+                            <Database className="h-2.5 w-2.5" />
+                            База {searchLocalCount}
+                          </span>
+                        )}
+                        {searchSources.includes('online') && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+                            <Globe className="h-2.5 w-2.5" />
+                            Онлайн {searchOnlineCount}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-muted-foreground" />
                     <Select value={sortBy} onValueChange={setSortBy}>

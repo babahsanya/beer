@@ -3,7 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronRight, Beer as BeerIcon, Scale } from "lucide-react";
+import { ChevronRight, Beer as BeerIcon, Scale, Globe } from "lucide-react";
 import { RatingStars } from "./rating-stars";
 import { getCountryFlag } from "@/lib/countries";
 import { getSRMColor } from "@/lib/srm-colors";
@@ -131,6 +131,15 @@ export function BeerCard({ beer, onClick, index = 0 }: BeerCardProps) {
               </div>
 
               <div className="flex items-center gap-2 mt-2 flex-wrap">
+                {beer.source === 'online' && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800"
+                  >
+                    <Globe className="h-2.5 w-2.5 mr-0.5" />
+                    Онлайн
+                  </Badge>
+                )}
                 <span
                   className="beer-srm-dot"
                   style={{ backgroundColor: getSRMColor(beer.style) }}
