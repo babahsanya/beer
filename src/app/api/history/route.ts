@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
 
 function formatTimeAgo(date: Date): string {
   const now = new Date();
@@ -19,8 +20,14 @@ function formatTimeAgo(date: Date): string {
   });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const history = await db.searchHistory.findMany({
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -41,8 +48,14 @@ export async function GET() {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = writeLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     await db.searchHistory.deleteMany();
     return NextResponse.json({ success: true, message: 'История очищена' });
   } catch (error) {

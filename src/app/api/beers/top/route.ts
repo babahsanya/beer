@@ -1,18 +1,21 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const beers = await db.beer.findMany({
-      orderBy: {
-        rating: 'desc',
-      },
+      orderBy: { rating: 'desc' },
       take: 5,
       include: {
         _count: {
-          select: {
-            reviews: true,
-          },
+          select: { reviews: true },
         },
       },
     });
@@ -39,6 +42,6 @@ export async function GET() {
     return NextResponse.json({ beers: formatted });
   } catch (error) {
     console.error('Top beers API error:', error);
-    return NextResponse.json({ error: 'Failed to fetch top beers' }, { status: 500 });
+    return NextResponse.json({ error: 'Ошибка загрузки' }, { status: 500 });
   }
 }

@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const history = await db.viewHistory.findMany({
       include: { beer: true },
       orderBy: { createdAt: 'desc' },
@@ -15,8 +22,14 @@ export async function GET() {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = writeLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     await db.viewHistory.deleteMany();
     return NextResponse.json({ success: true, message: 'Недавно просмотренные очищены' });
   } catch (error) {
@@ -30,12 +43,27 @@ export async function DELETE() {
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = writeLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const { beerId, beerName } = await request.json();
-    if (!beerId) return NextResponse.json({ error: 'beerId required' }, { status: 400 });
+
+    // Validate beerId
+    if (!beerId || typeof beerId !== 'string' || beerId.length > 100) {
+      return NextResponse.json({ error: 'beerId required' }, { status: 400 });
+    }
+
+    // SECURITY: Sanitize beerName to prevent stored XSS
+    const safeBeerName = typeof beerName === 'string'
+      ? beerName.replace(/[<>"'&]/g, '').slice(0, 200)
+      : '';
 
     await db.viewHistory.deleteMany({ where: { beerId } });
     await db.viewHistory.create({
-      data: { beerId, beerName: beerName || '' },
+      data: { beerId, beerName: safeBeerName },
     });
 
     const count = await db.viewHistory.count();

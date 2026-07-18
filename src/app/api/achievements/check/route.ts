@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
 const DEFAULT_ACHIEVEMENTS = [
   { key: "first_search", title: "Первый поиск", description: "Выполните первый поиск", icon: "🔍", target: 1 },
@@ -28,8 +29,14 @@ async function syncProgress(key: string, progress: number) {
   });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     // Ensure achievements are seeded
     const count = await db.userAchievement.count();
     if (count === 0) {
@@ -38,11 +45,10 @@ export async function GET() {
       }
     }
 
-    // --- first_search: count of SearchHistory ---
+    // Sync progress from actual data
     const searchCount = await db.searchHistory.count();
     await syncProgress("first_search", searchCount);
 
-    // --- beer_explorer + beer_guru: distinct beerId count in ViewHistory ---
     const allViews = await db.viewHistory.findMany({
       select: { beerId: true },
     });
@@ -50,7 +56,6 @@ export async function GET() {
     await syncProgress("beer_explorer", distinctBeersViewed);
     await syncProgress("beer_guru", distinctBeersViewed);
 
-    // --- style_taster: distinct styles viewed ---
     const beerIds = [...new Set(allViews.map((v) => v.beerId))];
     const beers = beerIds.length > 0
       ? await db.beer.findMany({
@@ -61,17 +66,14 @@ export async function GET() {
     const distinctStyles = new Set(beers.map((b) => b.style)).size;
     await syncProgress("style_taster", distinctStyles);
 
-    // --- stout_lover: views of stouts ---
     const stoutCount = beers.filter((b) =>
       b.style.toLowerCase().includes("stout")
     ).length;
     await syncProgress("stout_lover", stoutCount);
 
-    // --- favorite_collector: count of favorites ---
     const favoriteCount = await db.favorite.count();
     await syncProgress("favorite_collector", favoriteCount);
 
-    // --- night_owl: check if current hour >= 23 ---
     const currentHour = new Date().getHours();
     if (currentHour >= 23) {
       const owl = await db.userAchievement.findUnique({
@@ -85,7 +87,6 @@ export async function GET() {
       }
     }
 
-    // Return all achievements after sync
     const achievements = await db.userAchievement.findMany({
       orderBy: { createdAt: "asc" },
     });

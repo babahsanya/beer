@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import ZAI from 'z-ai-web-dev-sdk';
+import { aiLimiter, getClientIp } from '@/lib/rate-limit';
 
 interface VLMResult {
   name: string | null;
@@ -9,8 +10,23 @@ interface VLMResult {
   confidence: number;
 }
 
+// Maximum base64 length (~2MB in base64 ≈ 1.5MB actual)
+const MAX_IMAGE_BASE64_LENGTH = 2_800_000;
+// Allowed image MIME types
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit AI endpoint
+    const ip = getClientIp(request);
+    const rl = aiLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Слишком много запросов. Подождите.' },
+        { status: 429, headers: { 'Retry-After': '60' } }
+      );
+    }
+
     const body = await request.json();
     const { image } = body;
 
@@ -21,20 +37,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Limit image size to ~5MB base64
-    if (image.length > 7_000_000) {
+    // SECURITY: Validate image size
+    if (image.length > MAX_IMAGE_BASE64_LENGTH) {
       return NextResponse.json(
-        { error: 'Изображение слишком большое (максимум 5 МБ)' },
+        { error: 'Изображение слишком большое (максимум 2 МБ)' },
         { status: 400 }
       );
     }
 
+    // SECURITY: Validate minimum size (not empty/trivial)
+    if (image.length < 100) {
+      return NextResponse.json(
+        { error: 'Изображение слишком маленькое или повреждено' },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY: Validate MIME type to prevent non-image data
+    let dataUrl = image;
+    if (image.startsWith('data:')) {
+      const mimeMatch = image.match(/^data:([^;]+);/);
+      if (mimeMatch && !ALLOWED_IMAGE_TYPES.includes(mimeMatch[1])) {
+        return NextResponse.json(
+          { error: 'Недопустимый формат изображения. Используйте JPEG, PNG, WebP или GIF.' },
+          { status: 400 }
+        );
+      }
+      dataUrl = image;
+    } else {
+      // Default to JPEG for raw base64
+      dataUrl = `data:image/jpeg;base64,${image}`;
+    }
+
     // Use VLM to identify the beer label
     const zai = await ZAI.create();
-
-    const imageUrl = image.startsWith('data:')
-      ? image
-      : `data:image/jpeg;base64,${image}`;
 
     const response = await zai.chat.completions.createVision({
       model: 'default',
@@ -48,7 +84,7 @@ export async function POST(request: NextRequest) {
             },
             {
               type: 'image_url',
-              image_url: { url: imageUrl },
+              image_url: { url: dataUrl },
             },
           ],
         },
@@ -66,14 +102,14 @@ export async function POST(request: NextRequest) {
       if (jsonMatch) {
         const raw = JSON.parse(jsonMatch[0]);
         parsed = {
-          name: raw.name || null,
-          brewery: raw.brewery || null,
-          style: raw.style || null,
-          confidence: typeof raw.confidence === 'number' ? raw.confidence : 0,
+          name: typeof raw.name === 'string' ? raw.name.slice(0, 200) : null,
+          brewery: typeof raw.brewery === 'string' ? raw.brewery.slice(0, 200) : null,
+          style: typeof raw.style === 'string' ? raw.style.slice(0, 100) : null,
+          confidence: typeof raw.confidence === 'number' ? Math.min(Math.max(raw.confidence, 0), 100) : 0,
         };
       }
     } catch {
-      // If JSON parsing fails, try to extract name from text
+      // If JSON parsing fails
       parsed = {
         name: null,
         brewery: null,
@@ -85,13 +121,13 @@ export async function POST(request: NextRequest) {
     // Search for matching beers in the database
     if (parsed && parsed.name) {
       const whereConditions: Record<string, unknown>[] = [
-        { name: { contains: parsed.name } },
+        { name: { contains: parsed.name.slice(0, 100) } },
       ];
       if (parsed.brewery && parsed.brewery.trim().length > 0) {
-        whereConditions.push({ brewery: { contains: parsed.brewery } });
+        whereConditions.push({ brewery: { contains: parsed.brewery.slice(0, 100) } });
       }
       if (parsed.style && parsed.style.trim().length > 0) {
-        whereConditions.push({ style: { contains: parsed.style } });
+        whereConditions.push({ style: { contains: parsed.style.slice(0, 50) } });
       }
 
       const matchingBeers = await db.beer.findMany({
@@ -116,19 +152,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // No matches found, return top-rated beers as fallback
-    const topBeers = await db.beer.findMany({
-      orderBy: { rating: 'desc' },
-      take: 3,
-    });
-
-    const fallbackResults = topBeers.map((beer) => ({
-      ...beer,
-      confidence: parsed?.confidence ? Math.max(5, parsed.confidence - 50) : 5,
-    }));
-
+    // SECURITY FIX: No more deceptive fallback to top-rated beers.
+    // If VLM can't identify anything, return empty results.
     return NextResponse.json({
-      matches: fallbackResults,
+      matches: [],
       vlmResult: parsed,
     });
   } catch (error) {

@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
 const VALID_CATEGORIES = ['craft', 'macro', 'global', 'weekly'] as const;
 
 export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const category = (searchParams.get('category') || 'global') as string;
 

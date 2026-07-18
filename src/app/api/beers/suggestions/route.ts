@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { searchLimiter, getClientIp } from '@/lib/rate-limit';
 
 // Same alias map as search route
 const RU_EN_ALIASES: Record<string, string> = {
@@ -16,9 +17,16 @@ const RU_EN_ALIASES: Record<string, string> = {
 
 export async function GET(request: NextRequest) {
   try {
+    // Rate limit
+    const ip = getClientIp(request);
+    const rl = searchLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ suggestions: [], styles: [] });
+    }
+
     const q = request.nextUrl.searchParams.get('q') || '';
 
-    if (!q.trim() || q.trim().length < 2) {
+    if (!q.trim() || q.trim().length < 2 || q.length > 200) {
       return NextResponse.json({ suggestions: [], styles: [] });
     }
 
@@ -28,7 +36,7 @@ export async function GET(request: NextRequest) {
     const prefix = `${escapedQ}%`;
     const contains = `%${escapedQ}%`;
 
-    // Check for Russian aliases (both: query contains alias key, OR query is prefix of alias key)
+    // Check for Russian aliases
     const englishAliases: string[] = [];
     for (const [ru, en] of Object.entries(RU_EN_ALIASES)) {
       if (qLower.includes(ru) || ru.startsWith(qLower)) {
@@ -38,7 +46,7 @@ export async function GET(request: NextRequest) {
     const aliasPrefixes = englishAliases.map((en) => `${en}%`);
     const aliasContains = englishAliases.map((en) => `%${en}%`);
 
-    // Build conditions: prefix match OR contains match OR alias match
+    // Build conditions
     const nameConditions = [
       `LOWER("name") LIKE ?${ESC}`,
       `LOWER("name") LIKE ?${ESC}`,

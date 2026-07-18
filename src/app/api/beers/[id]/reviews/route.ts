@@ -1,15 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const { id } = await params;
     const searchParams = request.nextUrl.searchParams;
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '10', 10), 1), 50);
     const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
+
+    // Validate id format to prevent injection
+    if (typeof id !== 'string' || id.length > 100 || id.includes('/')) {
+      return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+    }
 
     // Verify beer exists
     const beer = await db.beer.findUnique({ where: { id } });
@@ -53,7 +65,18 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ip = getClientIp(request);
+    const rl = writeLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const { id } = await params;
+
+    // Validate id format
+    if (typeof id !== 'string' || id.length > 100 || id.includes('/')) {
+      return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+    }
 
     // Verify beer exists
     const beer = await db.beer.findUnique({ where: { id } });
@@ -67,13 +90,16 @@ export async function POST(
     const body = await request.json();
     const { author, rating, comment } = body;
 
-    // Validate author
-    if (!author || typeof author !== 'string' || author.trim().length < 2) {
+    // Validate author: string, min 2 chars, max 50 chars, no HTML
+    if (!author || typeof author !== 'string' || author.trim().length < 2 || author.trim().length > 50) {
       return NextResponse.json(
-        { error: 'Имя автора обязательно (минимум 2 символа)' },
+        { error: 'Имя автора обязательно (2-50 символов)' },
         { status: 400 }
       );
     }
+
+    // SECURITY: Strip HTML/script tags from author
+    const safeAuthor = author.trim().replace(/[<>"'&]/g, '');
 
     // Validate rating
     const ratingNum = Number(rating);
@@ -84,11 +110,22 @@ export async function POST(
       );
     }
 
-    // Validate comment length
-    if (comment && typeof comment === 'string' && comment.length > 500) {
+    // Validate comment: optional, max 500 chars, strip HTML
+    const rawComment = typeof comment === 'string' ? comment : '';
+    if (rawComment.length > 500) {
       return NextResponse.json(
         { error: 'Комментарий не должен превышать 500 символов' },
         { status: 400 }
+      );
+    }
+    const safeComment = rawComment.trim().replace(/[<>"'&]/g, '');
+
+    // SECURITY: Rate limit reviews per beer (max 5 reviews per beer per IP stored check)
+    const existingReviewCount = await db.review.count({ where: { beerId: id } });
+    if (existingReviewCount >= 100) {
+      return NextResponse.json(
+        { error: 'Максимум отзывов для этого пива достигнут' },
+        { status: 429 }
       );
     }
 
@@ -96,9 +133,9 @@ export async function POST(
     const review = await db.review.create({
       data: {
         beerId: id,
-        author: author.trim(),
+        author: safeAuthor,
         rating: ratingNum,
-        comment: (comment || '').trim(),
+        comment: safeComment,
       },
     });
 

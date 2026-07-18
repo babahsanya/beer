@@ -1,9 +1,10 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
-// Module-level cache to avoid repeating beers within a session
-const usedBeerIds = new Set<string>();
-const MAX_CACHE_SIZE = 40;
+// SECURITY FIX: Removed module-level `usedBeerIds` Set.
+// Quiz uniqueness is now handled per-session via a client-sent `exclude` parameter.
+// This prevents state leakage between different users on the same server.
 
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
@@ -21,8 +22,25 @@ function formatNumber(n: number): string {
   return String(n);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Rate limit
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Слишком много запросов' },
+        { status: 429, headers: { 'Retry-After': '60' } }
+      );
+    }
+
+    const searchParams = request.nextUrl.searchParams;
+    // Client sends comma-separated IDs of recently seen beers to avoid repeats
+    const excludeParam = searchParams.get('exclude') || '';
+    const excludeIds = new Set(
+      excludeParam.split(',').filter(id => id.length > 0 && id.length < 100)
+    );
+
     const allBeers = await db.beer.findMany({
       select: {
         id: true,
@@ -40,25 +58,17 @@ export async function GET() {
       return NextResponse.json({ error: 'Недостаточно пива в базе' }, { status: 400 });
     }
 
-    // Find available beers not recently used
-    let availableBeers = allBeers.filter((b) => !usedBeerIds.has(b.id));
+    // Filter out recently seen beers
+    let availableBeers = allBeers.filter((b) => !excludeIds.has(b.id));
 
-    // If all beers have been used, reset cache
+    // If all excluded, reset to full pool
     if (availableBeers.length < 4) {
-      usedBeerIds.clear();
       availableBeers = allBeers;
     }
 
     // Pick the correct beer
     const correctIndex = Math.floor(Math.random() * availableBeers.length);
     const correctBeer = availableBeers[correctIndex];
-
-    // Track this beer as used
-    usedBeerIds.add(correctBeer.id);
-    if (usedBeerIds.size > MAX_CACHE_SIZE) {
-      const firstId = usedBeerIds.values().next().value;
-      if (firstId) usedBeerIds.delete(firstId);
-    }
 
     // Pick 3 wrong options from other beers
     const otherBeers = allBeers.filter((b) => b.id !== correctBeer.id);

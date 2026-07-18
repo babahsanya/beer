@@ -1,8 +1,15 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const [totalBeers, totalReviews, totalFavorites, topRated, mostCheckedIn, avgResult] =
       await Promise.all([
         db.beer.count(),
@@ -21,7 +28,6 @@ export async function GET() {
         }),
       ]);
 
-    // Count distinct styles and countries
     const [stylesResult, countriesResult] = await Promise.all([
       db.beer.findMany({
         select: { style: true },
@@ -45,6 +51,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Stats API error:', error);
-    return NextResponse.json({ error: 'Failed to fetch stats' }, { status: 500 });
+    return NextResponse.json({ error: 'Ошибка загрузки' }, { status: 500 });
   }
 }

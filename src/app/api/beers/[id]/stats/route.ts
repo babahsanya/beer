@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
 // Simple deterministic hash from string
 function hashCode(str: string): number {
@@ -17,6 +18,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const { id } = await params;
 
     const beer = await db.beer.findUnique({ where: { id } });

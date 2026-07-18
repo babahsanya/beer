@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
 // Simple deterministic hash for date string
 function hashDate(dateStr: string): number {
@@ -7,13 +8,19 @@ function hashDate(dateStr: string): number {
   for (let i = 0; i < dateStr.length; i++) {
     const char = dateStr.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
-    hash |= 0; // Convert to 32-bit integer
+    hash |= 0;
   }
   return Math.abs(hash);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
     const hash = hashDate(dateStr);

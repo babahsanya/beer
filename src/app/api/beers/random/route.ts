@@ -1,8 +1,15 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { readLimiter, getClientIp } from '@/lib/rate-limit';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const totalBeers = await db.beer.count();
     const skip = Math.floor(Math.random() * totalBeers);
 
@@ -16,7 +23,7 @@ export async function GET() {
     });
 
     if (!beer) {
-      return NextResponse.json({ error: 'No beers found' }, { status: 404 });
+      return NextResponse.json({ error: 'Пиво не найдено' }, { status: 404 });
     }
 
     return NextResponse.json({
@@ -25,6 +32,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Random beer API error:', error);
-    return NextResponse.json({ error: 'Failed to fetch random beer' }, { status: 500 });
+    return NextResponse.json({ error: 'Ошибка загрузки' }, { status: 500 });
   }
 }

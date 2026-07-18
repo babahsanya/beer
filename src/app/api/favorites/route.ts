@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = readLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const favorites = await db.favorite.findMany({
       include: {
         beer: true,
@@ -22,12 +29,18 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = writeLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const body = await request.json();
     const { beerId } = body;
 
-    if (!beerId) {
+    if (!beerId || typeof beerId !== 'string' || beerId.length > 100) {
       return NextResponse.json(
-        { error: 'Укажите beerId' },
+        { error: 'Укажите корректный beerId' },
         { status: 400 }
       );
     }
@@ -67,6 +80,12 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rl = writeLimiter(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const beerId = searchParams.get('beerId');
     const deleteAll = searchParams.get('all') === 'true';
@@ -76,7 +95,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: true, message: 'Всё избранное удалено' });
     }
 
-    if (!beerId) {
+    if (!beerId || beerId.length > 100) {
       return NextResponse.json(
         { error: 'Укажите beerId или all=true' },
         { status: 400 }

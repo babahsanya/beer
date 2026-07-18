@@ -18,7 +18,8 @@ if (process.env.NODE_ENV !== 'production' && globalForPrisma._schemaVersion !== 
 export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: ['query'],
+    // Only log errors in development, nothing in production
+    ...(process.env.NODE_ENV === 'development' ? { log: ['error'] } : {}),
   })
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
