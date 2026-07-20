@@ -14,9 +14,9 @@ export default function manifest(): MetadataRoute.Manifest {
     dir: "ltr",
     categories: ["food", "lifestyle", "utilities"],
     icons: [
-      { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+      { src: "/icon.svg", sizes: "192x192", type: "image/svg+xml", purpose: "maskable" },
+      { src: "/icon.svg", sizes: "512x512", type: "image/svg+xml", purpose: "maskable" },
     ],
     shortcuts: [
       { name: "Поиск пива", short_name: "Поиск", url: "/?view=search" },
