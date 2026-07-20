@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useReducer } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { apiGet } from '@/lib/api-client';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -293,18 +294,20 @@ export default function QuizView() {
   // ── Fetch questions ───────────────────────────────────────────────────────
 
   const fetchQuestions = useCallback(async (): Promise<QuizQuestion[]> => {
-    const qs: QuizQuestion[] = [];
-    for (let i = 0; i < TOTAL_QUESTIONS; i++) {
-      try {
-        const res = await fetch('/api/quiz');
-        if (!res.ok) break;
-        const data = await res.json();
-        qs.push(data);
-      } catch {
-        break;
+    try {
+      // Batch mode: one request fetches up to 10 questions, so we don't
+      // pay 10x the network cost.
+      const data = await apiGet<{ questions: QuizQuestion[] } | QuizQuestion>(
+        `/api/quiz?count=${TOTAL_QUESTIONS}`,
+      );
+      if (Array.isArray((data as { questions?: QuizQuestion[] }).questions)) {
+        return (data as { questions: QuizQuestion[] }).questions;
       }
+      // Backwards-compat: single-question response (no `questions` wrapper).
+      return [data as QuizQuestion];
+    } catch {
+      return [];
     }
-    return qs;
   }, []);
 
   // ── Event handlers ────────────────────────────────────────────────────────

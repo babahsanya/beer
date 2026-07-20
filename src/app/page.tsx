@@ -184,19 +184,20 @@ export default function Home() {
       setShowSuggestions(false);
       setSearchLoading(true);
       try {
-        const res = await fetch(
-          `/api/beers/search?q=${encodeURIComponent(q)}&limit=${searchLimit}&offset=${offset}&sort=${sortBy}`,
-          { signal: controller.signal }
-        );
-        if (!res.ok) throw new Error("Ошибка поиска");
-        const data = await res.json();
+        const data = await apiGet<{
+          beers: Array<Beer & { _source?: string; _type?: string }>;
+          sources: string[];
+          localCount?: number;
+          onlineCount?: number;
+          pagination?: { total: number; limit: number; offset: number; hasMore: boolean };
+          total?: number;
+        }>(`/api/beers/search?q=${encodeURIComponent(q)}&limit=${searchLimit}&offset=${offset}&sort=${sortBy}`, { signal: controller.signal });
         // Strip internal _source field before passing to Beer type
-        const beers: Beer[] = ((data.beers || []) as Array<Beer & { _source?: string; _type?: string }>)
-          .map((b) => {
-            const { _source: _s, _type: _t, ...rest } = b;
-            void _s; void _t;
-            return rest;
-          });
+        const beers: Beer[] = (data.beers || []).map((b) => {
+          const { _source: _s, _type: _t, ...rest } = b;
+          void _s; void _t;
+          return rest;
+        });
         if (offset === 0) {
           setSearchResultsLocal(beers);
           setSearchSources(data.sources || []);
@@ -248,6 +249,9 @@ export default function Home() {
     suggestionsAbortRef.current = controller;
     try {
       setSuggestionsLoading(true);
+      // Suggestions is a public endpoint and still returns the raw payload
+      // shape ({ suggestions, styles }) — we use fetch directly so we can
+      // pass an AbortSignal without interference from the envelope wrapper.
       const res = await fetch(
         `/api/beers/suggestions?q=${encodeURIComponent(query.trim())}`,
         { signal: controller.signal }

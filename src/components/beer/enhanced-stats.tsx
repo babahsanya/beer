@@ -13,6 +13,7 @@ import {
   Globe,
   ArrowLeft,
 } from "lucide-react";
+import { apiGet } from "@/lib/api-client";
 
 /* ── Types ──────────────────────────────────────── */
 interface StyleRating {
@@ -192,11 +193,8 @@ export function EnhancedStats() {
   useEffect(() => {
     async function fetchCharts() {
       try {
-        const res = await fetch("/api/stats/charts");
-        if (res.ok) {
-          const json = await res.json();
-          setData(json);
-        }
+        const json = await apiGet<ChartsData>("/api/stats/charts");
+        setData(json);
       } catch {
         // ignore
       } finally {

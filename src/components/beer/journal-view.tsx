@@ -217,25 +217,22 @@ function BeerSearchInput({
     }
     setSearching(true);
     try {
-      const res = await fetch(
-        `/api/beers/search?q=${encodeURIComponent(q)}&limit=5&offset=0`
+      const data = await apiGet<{ beers: Array<Record<string, unknown>> }>(
+        `/api/beers/search?q=${encodeURIComponent(q)}&limit=5&offset=0`,
       );
-      if (res.ok) {
-        const data = await res.json();
-        setResults(
-          (data.beers || []).map(
-            (b: Record<string, unknown>) => ({
-              id: String(b.id),
-              name: String(b.name || ""),
-              style: String(b.style || ""),
-              brewery: String(b.brewery || ""),
-              abv: Number(b.abv) || 0,
-              country: String(b.country || ""),
-            })
-          )
-        );
-        setShowDropdown(true);
-      }
+      setResults(
+        (data.beers || []).map(
+          (b: Record<string, unknown>) => ({
+            id: String(b.id),
+            name: String(b.name || ""),
+            style: String(b.style || ""),
+            brewery: String(b.brewery || ""),
+            abv: Number(b.abv) || 0,
+            country: String(b.country || ""),
+          })
+        )
+      );
+      setShowDropdown(true);
     } catch {
       // ignore
     } finally {

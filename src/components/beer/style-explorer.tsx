@@ -10,6 +10,7 @@ import { Search, X, LayoutGrid } from "lucide-react";
 import { motion } from "framer-motion";
 import type { StyleInfo, Beer } from "@/types/beer";
 import { useBeerStore } from "@/store/beer-store";
+import { apiGet } from "@/lib/api-client";
 
 interface StyleExplorerProps {
   onSearchStyle: (query: string) => void;
@@ -24,12 +25,9 @@ export function StyleExplorer({ onSearchStyle }: StyleExplorerProps) {
   useEffect(() => {
     async function fetchStyles() {
       try {
-        const res = await fetch("/api/styles");
-        if (res.ok) {
-          const data = await res.json();
-          setStyles(data);
-          setTotalBeers(data.reduce((sum: number, s: StyleInfo) => sum + s.count, 0));
-        }
+        const data = await apiGet<StyleInfo[]>("/api/styles");
+        setStyles(Array.isArray(data) ? data : []);
+        setTotalBeers(data.reduce((sum: number, s: StyleInfo) => sum + s.count, 0));
       } catch {
         // ignore
       } finally {

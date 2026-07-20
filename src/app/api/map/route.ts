@@ -150,9 +150,6 @@ export async function GET(request: NextRequest) {
         const popularBreweries = [
           'BrewDog', 'Guinness', 'Heineken', 'Sierra Nevada', 'Stone Brewing',
           'Bell\'s Brewery', 'Founders', 'Dogfish Head', 'Chimay', 'Rochefort',
-          'Weihenstephan', 'Paulaner', 'Pilsner Urquell', 'Stella Artois',
-          'Hoegaarden', 'Duvel', 'Westmalle', 'Orval', 'Mikkeller',
-          'To Øl', 'Lervig', 'Garage Project', 'Coopers',
         ];
 
         const untappdBreweries = await Promise.allSettled(
@@ -204,7 +201,7 @@ export async function GET(request: NextRequest) {
 
     // --- Source 3: Open Brewery DB (real brewery locations, no auth) ---
     try {
-      const countries = ['United States', 'Belgium', 'Germany', 'United Kingdom', 'Czech Republic', 'Netherlands', 'Ireland', 'Denmark', 'Japan', 'Australia'];
+      const countries = ['United States', 'Belgium', 'Germany', 'United Kingdom', 'Czech Republic'];
       const apiBreweries = await Promise.allSettled(
         countries.map(c => searchOpenBreweries({ country: c, perPage: 8 }))
       );

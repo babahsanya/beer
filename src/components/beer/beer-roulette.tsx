@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBeerStore } from "@/store/beer-store";
 import type { Beer } from "@/types/beer";
 import { Star, Loader2, RotateCcw, ArrowLeft } from "lucide-react";
+import { apiGet } from "@/lib/api-client";
 
 // ---------- Wheel Configuration ----------
 const SEGMENTS = [
@@ -127,38 +128,19 @@ export function BeerRoulette() {
       // Fetch random beer of that style
       setIsLoadingBeer(true);
       try {
-        const res = await fetch(
-          `/api/beers/random?style=${encodeURIComponent(winner.style)}`
+        const beer = await apiGet<Beer>(
+          `/api/beers/random?style=${encodeURIComponent(winner.style)}`,
         );
-        if (res.ok) {
-          const beer: Beer = await res.json();
-          setResult({ style: winner.style, emoji: winner.emoji, beer });
-          setHistory((prev) => [
-            {
-              style: winner.style,
-              emoji: winner.emoji,
-              beerName: beer.name,
-              timestamp: Date.now(),
-            },
-            ...prev.slice(0, 4),
-          ]);
-        } else {
-          setResult({
+        setResult({ style: winner.style, emoji: winner.emoji, beer });
+        setHistory((prev) => [
+          {
             style: winner.style,
             emoji: winner.emoji,
-            beer: null,
-            notFound: true,
-          });
-          setHistory((prev) => [
-            {
-              style: winner.style,
-              emoji: winner.emoji,
-              beerName: null,
-              timestamp: Date.now(),
-            },
-            ...prev.slice(0, 4),
-          ]);
-        }
+            beerName: beer.name,
+            timestamp: Date.now(),
+          },
+          ...prev.slice(0, 4),
+        ]);
       } catch {
         setResult({
           style: winner.style,
@@ -166,6 +148,15 @@ export function BeerRoulette() {
           beer: null,
           notFound: true,
         });
+        setHistory((prev) => [
+          {
+            style: winner.style,
+            emoji: winner.emoji,
+            beerName: null,
+            timestamp: Date.now(),
+          },
+          ...prev.slice(0, 4),
+        ]);
       } finally {
         setIsLoadingBeer(false);
       }

@@ -14,6 +14,7 @@ import { Sparkles, RefreshCw, ChevronRight, Beer as BeerIcon } from "lucide-reac
 import { motion } from "framer-motion";
 import Image from "next/image";
 import type { Recommendation, Beer } from "@/types/beer";
+import { apiGet, getErrorMessage } from "@/lib/api-client";
 
 function getStyleBorderColor(style: string): string {
   const s = style.toLowerCase();
@@ -40,12 +41,10 @@ export function RecommendationsView() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/recommendations");
-      if (!res.ok) throw new Error("Ошибка загрузки");
-      const data = await res.json();
+      const data = await apiGet<{ recommendations: Recommendation[] }>("/api/recommendations");
       setRecommendations(data.recommendations || []);
-    } catch {
-      setError("Не удалось загрузить рекомендации");
+    } catch (err) {
+      setError(getErrorMessage(err, "Не удалось загрузить рекомендации"));
     } finally {
       setLoading(false);
     }

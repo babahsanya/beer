@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { searchLimiter, aiLimiter, getClientIp } from '@/lib/rate-limit';
 import { auth } from '@/lib/auth';
@@ -13,51 +13,40 @@ import {
   getCountryFlag,
   localizeBreweryType,
 } from '@/lib/brewerydb';
+import { apiSuccess, apiBadRequest, apiTooManyRequests, apiInternalError } from '@/lib/api';
+import { escapeLike, expandAliases } from '@/lib/beer-aliases';
 
-// Escape LIKE wildcards
-function escapeLike(str: string): string {
-  return str.replace(/!/g, '!!').replace(/%/g, '!%').replace(/_/g, '!_');
-}
-
-// Russian → English aliases
-const RU_EN_ALIASES: Record<string, string> = {
-  стаут: 'stout', ипа: 'ipa', лагер: 'lager', эль: 'ale',
-  пшеничн: 'wheat', бельгийск: 'belgian', американск: 'american',
-  имперск: 'imperial', портер: 'porter', кислый: 'sour',
-  трипель: 'tripel', пилснер: 'pilsner', вайсбир: 'witbier',
-  'тёмн': 'dark', 'тёмные': 'dark', креп: 'strong', рис: 'rice',
-  фрукт: 'fruit', овсян: 'oatmeal', пале: 'pale', дабл: 'double',
-  квдрупель: 'quadrupel', сезон: 'saison', кольш: 'kolsch',
-  коьш: 'kolsch', лэмбик: 'lambic', сессион: 'session',
-  виенн: 'vienna', советск: 'soviet', европейск: 'european',
-  яг: 'ipa', стауд: 'stout', дозер: 'dozer',
-  корона: 'corona', хайнекен: 'heineken', гиннесс: 'guinness',
-  будвайзер: 'budweiser', стопка: 'stout', вайс: 'wheat',
-  дюбель: 'dubbel', пивовар: 'brewery', пивоварен: 'brewery',
-};
-
-function expandAliases(query: string): string[] {
-  const queryLower = query.toLowerCase();
-  const terms = new Set<string>();
-  for (const [ru, en] of Object.entries(RU_EN_ALIASES)) {
-    if (queryLower.includes(ru) || ru.startsWith(queryLower)) {
-      terms.add(en);
-    }
-  }
-  return Array.from(terms);
-}
-
+// Two-row Levenshtein — O(min(la,lb)) memory instead of full O(la*lb) matrix.
+// Identical distance result to the classic DP, just doesn't keep the whole
+// matrix around. For our 500-row fuzzy fallback scan this is ~100x less
+// memory pressure.
 function levenshtein(a: string, b: string): number {
+  // Ensure `a` is the shorter string so prev/cur arrays are smaller.
+  if (a.length > b.length) [a, b] = [b, a];
   const la = a.length, lb = b.length;
-  const m: number[][] = Array.from({ length: la + 1 }, () => new Array(lb + 1).fill(0));
-  for (let i = 0; i <= la; i++) m[i][0] = i;
-  for (let j = 0; j <= lb; j++) m[0][j] = j;
+  if (la === 0) return lb;
+  if (lb === 0) return la;
+
+  let prev = new Array<number>(lb + 1);
+  let cur = new Array<number>(lb + 1);
+  for (let j = 0; j <= lb; j++) prev[j] = j;
+
   for (let i = 1; i <= la; i++) {
+    cur[0] = i;
+    const aCh = a.charCodeAt(i - 1);
     for (let j = 1; j <= lb; j++) {
-      m[i][j] = Math.min(m[i-1][j]+1, m[i][j-1]+1, m[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+      const cost = aCh === b.charCodeAt(j - 1) ? 0 : 1;
+      cur[j] = Math.min(
+        prev[j] + 1,        // deletion
+        cur[j - 1] + 1,    // insertion
+        prev[j - 1] + cost // substitution
+      );
     }
+    // Swap prev and cur for the next iteration. Allocating a fresh array
+    // each row would be wasteful, so we reuse the two buffers.
+    const tmp = prev; prev = cur; cur = tmp;
   }
-  return m[la][lb];
+  return prev[lb];
 }
 
 // ─── LOCAL DATABASE SEARCH ──────────────────────────────────────────────────
@@ -102,25 +91,38 @@ async function searchLocal(
   const totalRaw = (totalResult as Array<{ count: bigint | number }>)[0]?.count || 0;
   let total = Number(totalRaw);
 
-  // Fuzzy fallback
+  // Fuzzy fallback — scan top-rated beers (ORDER BY rating DESC instead
+  // of a random sample) so the fallback surfaces reasonable suggestions
+  // when the LIKE clauses return zero rows.
   let fuzzyBeers: unknown[] = [];
   if (total === 0) {
     const maxDist = Math.max(2, Math.floor(qTrimmed.length / 2));
     const queryLower = qTrimmed.toLowerCase();
-    const allBeers = await db.$queryRawUnsafe(`SELECT * FROM "Beer" LIMIT ?`, MAX_FUZZY_SCAN) as Array<Record<string, unknown>>;
+    const allBeers = await db.$queryRawUnsafe(
+      `SELECT * FROM "Beer" ORDER BY "rating" DESC LIMIT ?`,
+      MAX_FUZZY_SCAN,
+    ) as Array<Record<string, unknown>>;
+    // Filter out very short tokens — Levenshtein on "А" vs anything is noise.
+    const wordFilter = (w: string) => w.length >= 2;
+    let bestDist = Number.POSITIVE_INFINITY;
     const scored = allBeers.map(beer => {
       const name = String(beer.name || '').toLowerCase();
-      const words = name.split(/\s+/);
-      const minDist = Math.min(
-        levenshtein(queryLower, name),
-        levenshtein(queryLower, words[0] || ''),
-        ...words.map(w => levenshtein(queryLower, w))
-      );
+      const words = name.split(/\s+/).filter(wordFilter);
+      const candidates = [name, words[0] || '', ...words];
+      let minDist = Number.POSITIVE_INFINITY;
+      for (const cand of candidates) {
+        if (!cand) continue;
+        const d = levenshtein(queryLower, cand);
+        if (d < minDist) minDist = d;
+        if (d === 0) break; // early-exit — can't beat a perfect match
+      }
+      if (minDist < bestDist) bestDist = minDist;
       return { beer, dist: minDist };
     });
     const matched = scored.filter(s => s.dist <= maxDist).sort((a, b) => a.dist - b.dist);
     fuzzyBeers = matched.slice(offset, offset + limit).map(s => s.beer);
     total = matched.length;
+    void bestDist;
   }
 
   return {
@@ -252,9 +254,9 @@ export async function GET(request: NextRequest) {
     const clientIp = getClientIp(request);
     const searchCheck = searchLimiter(clientIp);
     if (!searchCheck.allowed) {
-      return NextResponse.json(
-        { error: 'Слишком много запросов. Подождите немного.' },
-        { status: 429, headers: { 'Retry-After': String(Math.ceil((searchCheck.resetAt - Date.now()) / 1000)) } }
+      return apiTooManyRequests(
+        'Слишком много запросов. Подождите немного.',
+        Math.ceil((searchCheck.resetAt - Date.now()) / 1000),
       );
     }
 
@@ -262,7 +264,7 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q') || '';
 
     if (q.length > 200 || /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(q)) {
-      return NextResponse.json({ error: 'Некорректный запрос' }, { status: 400 });
+      return apiBadRequest('Некорректный запрос');
     }
 
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20', 10), 1), 50);
@@ -271,7 +273,9 @@ export async function GET(request: NextRequest) {
     const noWeb = searchParams.get('noweb') === 'true';
 
     if (!q.trim()) {
-      return NextResponse.json({ beers: [], sources: [], pagination: { total: 0, limit, offset, hasMore: false } });
+      return apiSuccess({
+        beers: [], sources: [], pagination: { total: 0, limit, offset, hasMore: false },
+      });
     }
 
     const qTrimmed = q.trim();
@@ -280,7 +284,7 @@ export async function GET(request: NextRequest) {
       const aiCheck = aiLimiter(clientIp);
       if (!aiCheck.allowed) {
         const localResult = await searchLocal(qTrimmed, limit, offset, sortBy);
-        return NextResponse.json({
+        return apiSuccess({
           beers: localResult.beers.map(b => ({ ...b, _source: 'local' })),
           sources: localResult.total > 0 ? ['local'] : [],
           localCount: localResult.total, onlineCount: 0,
@@ -390,7 +394,7 @@ export async function GET(request: NextRequest) {
       }
     } catch { /* non-fatal */ }
 
-    return NextResponse.json({
+    return apiSuccess({
       beers: mergedBeers,
       sources,
       localCount: localResult.total,
@@ -399,6 +403,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Unified search error:', error);
-    return NextResponse.json({ error: 'Ошибка при поиске пива' }, { status: 500 });
+    return apiInternalError('Ошибка при поиске пива');
   }
 }

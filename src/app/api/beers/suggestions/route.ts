@@ -1,19 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { searchLimiter, getClientIp } from '@/lib/rate-limit';
-
-// Same alias map as search route
-const RU_EN_ALIASES: Record<string, string> = {
-  стаут: 'stout', ипа: 'ipa', лагер: 'lager', эль: 'ale',
-  пшеничн: 'wheat', бельгийск: 'belgian', американск: 'american',
-  имперск: 'imperial', портер: 'porter', кислый: 'sour',
-  трипель: 'tripel', пилснер: 'pilsner', вайсбир: 'witbier',
-  тёмн: 'dark', креп: 'strong', рис: 'rice', фрукт: 'fruit',
-  овсян: 'oatmeal', пале: 'pale', дабл: 'double', квдрупель: 'quadrupel',
-  сезон: 'saison', кольш: 'kolsch', коьш: 'kolsch', лэмбик: 'lambic',
-  сессион: 'session', виенн: 'vienna', советск: 'soviet',
-  европейск: 'european', яг: 'ipa', стауд: 'stout',
-};
+import { escapeLike, expandAliases } from '@/lib/beer-aliases';
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,18 +19,13 @@ export async function GET(request: NextRequest) {
     }
 
     const qLower = q.trim().toLowerCase();
-    const escapedQ = qLower.replace(/!/g, '!!').replace(/%/g, '!%').replace(/_/g, '!_');
+    const escapedQ = escapeLike(qLower);
     const ESC = " ESCAPE '!'";
     const prefix = `${escapedQ}%`;
     const contains = `%${escapedQ}%`;
 
     // Check for Russian aliases
-    const englishAliases: string[] = [];
-    for (const [ru, en] of Object.entries(RU_EN_ALIASES)) {
-      if (qLower.includes(ru) || ru.startsWith(qLower)) {
-        englishAliases.push(en);
-      }
-    }
+    const englishAliases = expandAliases(qLower);
     const aliasPrefixes = englishAliases.map((en) => `${en}%`);
     const aliasContains = englishAliases.map((en) => `%${en}%`);
 

@@ -6,6 +6,7 @@ import { Dice5, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useBeerStore } from "@/store/beer-store";
 import type { Beer } from "@/types/beer";
+import { apiGet } from "@/lib/api-client";
 
 export function RandomBeerButton() {
   const [spinning, setSpinning] = useState(false);
@@ -59,28 +60,18 @@ export function RandomBeerButton() {
     }, 80);
 
     try {
-      const res = await fetch("/api/beers/random");
-      if (res.ok) {
-        const data: Beer & { reviewCount?: number } = await res.json();
-        // Wait for animation to finish
-        revealTimeoutRef.current = setTimeout(() => {
-          revealTimeoutRef.current = null;
-          setSlotText(data.name);
-          transitionTimeoutRef.current = setTimeout(() => {
-            transitionTimeoutRef.current = null;
-            setShowSlot(false);
-            setSpinning(false);
-            selectBeer(data);
-          }, 600);
-        }, maxTicks * 80);
-      } else {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-        setShowSlot(false);
-        setSpinning(false);
-      }
+      const data = await apiGet<Beer & { reviewCount?: number }>("/api/beers/random");
+      // Wait for animation to finish
+      revealTimeoutRef.current = setTimeout(() => {
+        revealTimeoutRef.current = null;
+        setSlotText(data.name);
+        transitionTimeoutRef.current = setTimeout(() => {
+          transitionTimeoutRef.current = null;
+          setShowSlot(false);
+          setSpinning(false);
+          selectBeer(data);
+        }, 600);
+      }, maxTicks * 80);
     } catch {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
