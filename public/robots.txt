@@ -1,14 +1,39 @@
+# ──────────────────────────────────────────────────────────────────────
+# BeerID robots.txt
+# ──────────────────────────────────────────────────────────────────────
+
 User-agent: Googlebot
 Allow: /
+Disallow: /api/
+Disallow: /_next/
+Disallow: /auth/
 
 User-agent: Bingbot
 Allow: /
+Disallow: /api/
+Disallow: /_next/
+Disallow: /auth/
 
 User-agent: Twitterbot
 Allow: /
+Disallow: /api/
+Disallow: /_next/
+Disallow: /auth/
 
 User-agent: facebookexternalhit
 Allow: /
+Disallow: /api/
+Disallow: /_next/
+Disallow: /auth/
+
+User-agent: TelegramBot
+Allow: /
+Disallow: /api/
+Disallow: /_next/
+Disallow: /auth/
 
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /_next/
+Disallow: /auth/

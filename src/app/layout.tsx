@@ -1,52 +1,73 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "next-themes";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.AUTH_URL || "http://localhost:3000";
 
 export const metadata: Metadata = {
-  title: "BeerID — Пивной справочник",
-  description:
-    "BeerID — ваш пивной справочник. Ищите пиво по названию, распознавайте по фото, изучайте рейтинги и отзывы.",
-  keywords: [
-    "BeerID",
-    "пиво",
-    "справочник",
-    "рейтинг",
-    "отзывы",
-    "крафтовое пиво",
-  ],
-  icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍺</text></svg>",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "BeerID — Пивной справочник",
+    template: "%s · BeerID",
   },
+  description: "BeerID — ваш персональный журнал и гид по пиву. Ищите пиво по названию, распознавайте по фото, изучайте рейтинги, ведите дегустационные заметки, открывайте новые стили.",
+  applicationName: "BeerID",
+  keywords: ["BeerID", "пиво", "справочник", "рейтинг", "отзывы", "крафтовое пиво", "дегустация", "Untappd", "пивоварня", "пивной журнал"],
+  authors: [{ name: "BeerID" }],
+  creator: "BeerID",
+  publisher: "BeerID",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    apple: "/apple-icon.svg",
+  },
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    url: siteUrl,
+    siteName: "BeerID",
+    title: "BeerID — Пивной справочник",
+    description: "Персональный журнал и гид по пиву: каталог, рейтинги, дегустационные заметки, рекомендации, викторины и карта пивоварен.",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "BeerID — Пивной справочник" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "BeerID — Пивной справочник",
+    description: "Персональный журнал и гид по пиву: каталог, рейтинги, дегустационные заметки, рекомендации.",
+    images: ["/og-image.png"],
+  },
+  manifest: "/manifest.webmanifest",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 },
+  },
+  formatDetection: { telephone: false, address: false, email: false },
+  category: "food & drink",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f59e0b" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ru" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          enableSystem
-          disableTransitionOnChange
-        >
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           <div className="flex min-h-screen flex-col">
             <div className="flex-1">{children}</div>
             <footer className="relative py-6 px-4 bg-white/50 dark:bg-stone-900/50 backdrop-blur-sm mt-auto">
@@ -61,8 +82,6 @@ export default function RootLayout({
                   <span>Сделано с 🍺</span>
                   <span className="text-muted-foreground/30">•</span>
                   <span>Пивной справочник</span>
-                  <span className="text-muted-foreground/30">•</span>
-                  <span>Без авторизации</span>
                 </div>
               </div>
             </footer>

@@ -6,7 +6,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const PROJECT_ROOT = path.resolve(__dirname, "..");
-const STANDALONE_DIR = path.join(PROJECT_ROOT, ".next", "standalone");
+// Next.js standalone may nest under the workspace dir name (e.g. .next/standalone/beer/
+// when PROJECT_ROOT is /home/z/my-project/beer/). Detect by checking for server.js.
+const STANDALONE_ROOT = path.join(PROJECT_ROOT, ".next", "standalone");
+const STANDALONE_DIR = fs.existsSync(path.join(STANDALONE_ROOT, "server.js"))
+  ? STANDALONE_ROOT
+  : fs.existsSync(path.join(STANDALONE_ROOT, "beer", "server.js"))
+    ? path.join(STANDALONE_ROOT, "beer")
+    : STANDALONE_ROOT;
 const STATIC_SOURCE = path.join(PROJECT_ROOT, ".next", "static");
 const STATIC_DEST = path.join(STANDALONE_DIR, ".next", "static");
 const PUBLIC_SOURCE = path.join(PROJECT_ROOT, "public");

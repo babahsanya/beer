@@ -1,5 +1,21 @@
-const countryFlags: Record<string, string> = {
-  // Russian names
+/**
+ * Comprehensive country → flag emoji map.
+ *
+ * Used by:
+ *   - components/beer/brewery-map.tsx (was a duplicate copy)
+ *   - lib/brewerydb.ts (was a duplicate copy)
+ *   - lib/countries.ts (the original)
+ *
+ * Extracted to a single source in Stage 5 of the audit recovery.
+ *
+ * Includes both Russian and English country names so it works regardless
+ * of which source the country string came from (local DB stores English,
+ * Untappd returns English, OBD returns English, while some seed data uses
+ * Russian names).
+ */
+
+const COUNTRY_FLAGS: Record<string, string> = {
+  // ─── Russian names ──────────────────────────────────────────────────
   "США": "🇺🇸",
   "Великобритания": "🇬🇧",
   "Бельгия": "🇧🇪",
@@ -31,7 +47,45 @@ const countryFlags: Record<string, string> = {
   "Сингапур": "🇸🇬",
   "Индия": "🇮🇳",
   "Китай": "🇨🇳",
-  // English names (for online search results)
+  "Португалия": "🇵🇹",
+  "Швейцария": "🇨🇭",
+  "Эстония": "🇪🇪",
+  "Латвия": "🇱🇻",
+  "Литва": "🇱🇹",
+  "Украина": "🇺🇦",
+  "Хорватия": "🇭🇷",
+  "Румыния": "🇷🇴",
+  "Венгрия": "🇭🇺",
+  "Греция": "🇬🇷",
+  "Турция": "🇹🇷",
+  "Израиль": "🇮🇱",
+  "Ямайка": "🇯🇲",
+  "Доминиканская Республика": "🇩🇴",
+  "Коста-Рика": "🇨🇷",
+  "Панама": "🇵🇦",
+  "Перу": "🇵🇪",
+  "Эквадор": "🇪🇨",
+  "Уругвай": "🇺🇾",
+  "Венесуэла": "🇻🇪",
+  "Нигерия": "🇳🇬",
+  "Кения": "🇰🇪",
+  "Гана": "🇬🇭",
+  "Египет": "🇪🇬",
+  "Марокко": "🇲🇦",
+  "Сербия": "🇷🇸",
+  "Болгария": "🇧🇬",
+  "Словакия": "🇸🇰",
+  "Словения": "🇸🇮",
+  "Филиппины": "🇵🇭",
+  "Вьетнам": "🇻🇳",
+  "Куба": "🇨🇺",
+  "Никарагуа": "🇳🇮",
+  "Исландия": "🇮🇸",
+  "Чили": "🇨🇱",
+  "Колумбия": "🇨🇴",
+  "Тайвань": "🇹🇼",
+
+  // ─── English names ─────────────────────────────────────────────────
   "USA": "🇺🇸",
   "United States": "🇺🇸",
   "UK": "🇬🇧",
@@ -68,12 +122,52 @@ const countryFlags: Record<string, string> = {
   "India": "🇮🇳",
   "China": "🇨🇳",
   "Portugal": "🇵🇹",
-  "Португалия": "🇵🇹",
   "Switzerland": "🇨🇭",
-  "Швейцария": "🇨🇭",
+  "Estonia": "🇪🇪",
+  "Latvia": "🇱🇻",
+  "Lithuania": "🇱🇹",
+  "Ukraine": "🇺🇦",
+  "Croatia": "🇭🇷",
+  "Romania": "🇷🇴",
+  "Hungary": "🇭🇺",
+  "Greece": "🇬🇷",
+  "Turkey": "🇹🇷",
+  "Israel": "🇮🇱",
+  "Jamaica": "🇯🇲",
+  "Dominican Republic": "🇩🇴",
+  "Costa Rica": "🇨🇷",
+  "Panama": "🇵🇦",
+  "Peru": "🇵🇪",
+  "Ecuador": "🇪🇨",
+  "Uruguay": "🇺🇾",
+  "Venezuela": "🇻🇪",
+  "Nigeria": "🇳🇬",
+  "Kenya": "🇰🇪",
+  "Ghana": "🇬🇭",
+  "Egypt": "🇪🇬",
+  "Morocco": "🇲🇦",
+  "Serbia": "🇷🇸",
+  "Bulgaria": "🇧🇬",
+  "Slovakia": "🇸🇰",
+  "Slovenia": "🇸🇮",
+  "Philippines": "🇵🇭",
+  "Vietnam": "🇻🇳",
+  "Cuba": "🇨🇺",
+  "Nicaragua": "🇳🇮",
+  "Iceland": "🇮🇸",
+  "Chile": "🇨🇱",
+  "Colombia": "🇨🇴",
+  "Taiwan": "🇹🇼",
 };
 
-export function getCountryFlag(country: string): string {
+/** Returns the flag emoji for a country name, or 🌍 if unknown. */
+export function getCountryFlag(country: string | null | undefined): string {
   if (!country) return "";
-  return countryFlags[country] || "🌍";
+  return COUNTRY_FLAGS[country] || "🌍";
+}
+
+/** Returns "flag country" — convenience helper for display strings. */
+export function formatCountryWithFlag(country: string | null | undefined): string {
+  if (!country) return "";
+  return `${getCountryFlag(country)} ${country}`;
 }
