@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
 import {
   apiSuccess,
@@ -30,9 +32,11 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const rawStyle = searchParams.get('style');
-    // Cap style filter — protects against giant query strings.
-    const style = rawStyle && rawStyle.length <= 100 ? rawStyle : undefined;
+    const styleSchema = z.string().max(100).optional();
+    // Soft validation — invalid style silently falls back to "no filter",
+    // matching the previous behavior of `rawStyle && rawStyle.length <= 100 ? rawStyle : undefined`.
+    const styleResult = styleSchema.safeParse(searchParams.get('style') ?? undefined);
+    const style = styleResult.success ? styleResult.data : undefined;
 
     let beer;
 
@@ -75,7 +79,7 @@ export async function GET(request: NextRequest) {
       reviewCount: _count.reviews,
     });
   } catch (error) {
-    console.error('Random beer API error:', error);
+    logger.error('Random beer API error', { error: String(error) });
     return apiInternalError('Ошибка загрузки');
   }
 }

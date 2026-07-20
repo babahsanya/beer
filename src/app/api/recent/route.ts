@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { readLimiter, writeLimiter, getClientIp } from "@/lib/rate-limit";
+import { beerIdSchema, formatZodErrors } from "@/lib/validation";
 import {
   apiSuccess,
   apiBadRequest,
@@ -61,7 +64,7 @@ export async function GET(request: NextRequest) {
       })),
     );
   } catch (error) {
-    console.error("Recent view error:", error);
+    logger.error("Recent view error", { error: String(error) });
     return apiInternalError("Ошибка");
   }
 }
@@ -88,23 +91,28 @@ export async function POST(request: NextRequest) {
     if (userOrError instanceof NextResponse) return userOrError;
     const user = userOrError;
 
-    let body: Record<string, unknown>;
+    let body: unknown;
     try {
       body = await request.json();
     } catch {
       return apiBadRequest("Укажите корректный beerId");
     }
 
-    const { beerId, beerName } = body;
-
-    if (!beerId || typeof beerId !== "string" || beerId.length > 100) {
-      return apiBadRequest("Укажите корректный beerId");
+    const bodySchema = z
+      .object({
+        beerId: beerIdSchema,
+        beerName: z.string().max(200).optional(),
+      })
+      .strict();
+    const parsed = bodySchema.safeParse(body);
+    if (!parsed.success) {
+      return apiBadRequest("Укажите корректный beerId", formatZodErrors(parsed.error));
     }
+    const { beerId, beerName } = parsed.data;
 
-    const safeBeerName =
-      typeof beerName === "string"
-        ? beerName.replace(/[<>"'&]/g, "").slice(0, 200)
-        : "";
+    const safeBeerName = beerName
+      ? beerName.replace(/[<>"'&]/g, "").slice(0, 200)
+      : "";
 
     const now = new Date();
     const record = await db.viewHistory.upsert({
@@ -139,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess({ id: record.id });
   } catch (error) {
-    console.error("Recent view create error:", error);
+    logger.error("Recent view create error", { error: String(error) });
     return apiInternalError("Ошибка");
   }
 }
@@ -164,7 +172,7 @@ export async function DELETE(request: NextRequest) {
     const user = userOrError;
 
     const searchParams = request.nextUrl.searchParams;
-    const beerId = searchParams.get("beerId");
+    const beerIdRaw = searchParams.get("beerId");
     const deleteAll = searchParams.get("all") === "true";
 
     if (deleteAll) {
@@ -174,9 +182,15 @@ export async function DELETE(request: NextRequest) {
       return apiSuccess({ deleted: result.count });
     }
 
-    if (!beerId || beerId.length > 100) {
+    if (!beerIdRaw) {
       return apiBadRequest("Укажите beerId или all=true");
     }
+
+    const beerIdResult = beerIdSchema.safeParse(beerIdRaw);
+    if (!beerIdResult.success) {
+      return apiBadRequest("Укажите beerId или all=true");
+    }
+    const beerId = beerIdResult.data;
 
     const deleted = await db.viewHistory.deleteMany({
       where: { userId: user.id, beerId },
@@ -188,7 +202,7 @@ export async function DELETE(request: NextRequest) {
 
     return apiSuccess({ deleted: deleted.count });
   } catch (error) {
-    console.error("Recent clear error:", error);
+    logger.error("Recent clear error", { error: String(error) });
     return apiInternalError("Ошибка при очистке");
   }
 }

@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { searchLimiter, getClientIp } from '@/lib/rate-limit';
 import { escapeLike, expandAliases } from '@/lib/beer-aliases';
+import { searchQuerySchema } from '@/lib/validation';
+
+// Suggestions need at least 2 chars after trimming — the underlying
+// searchQuerySchema enforces max 200 + no control chars; we layer a
+// post-trim min-length on top so " a" still counts as length 1.
+const suggestionsQuerySchema = searchQuerySchema.refine(
+  (q) => q.length >= 2,
+  'Query too short (min 2 chars)',
+);
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,13 +22,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ suggestions: [], styles: [] });
     }
 
-    const q = request.nextUrl.searchParams.get('q') || '';
-
-    if (!q.trim() || q.trim().length < 2 || q.length > 200) {
+    const qRaw = request.nextUrl.searchParams.get('q') ?? '';
+    const qResult = suggestionsQuerySchema.safeParse(qRaw);
+    if (!qResult.success) {
       return NextResponse.json({ suggestions: [], styles: [] });
     }
+    const qTrimmed = qResult.data;
 
-    const qLower = q.trim().toLowerCase();
+    const qLower = qTrimmed.toLowerCase();
     const escapedQ = escapeLike(qLower);
     const ESC = " ESCAPE '!'";
     const prefix = `${escapedQ}%`;
@@ -76,7 +87,7 @@ export async function GET(request: NextRequest) {
       styles: styleResults.map((r) => r.style),
     });
   } catch (error) {
-    console.error('Suggestions error:', error);
+    logger.error('Suggestions error', { error: String(error) });
     return NextResponse.json({ suggestions: [], styles: [] });
   }
 }

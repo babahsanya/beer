@@ -7,36 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MapPin, Star, Beer, Globe, ChevronRight } from "lucide-react";
 import type { BreweryMapPoint } from "@/types/beer";
-
-/* ─── Country → Flag emoji ─── */
-const COUNTRY_FLAGS: Record<string, string> = {
-  "США": "🇺🇸",
-  "Ирландия": "🇮🇪",
-  "Германия": "🇩🇪",
-  "Чехия": "🇨🇿",
-  "Бельгия": "🇧🇪",
-  "Великобритания": "🇬🇧",
-  "Мексика": "🇲🇽",
-  "Нидерланды": "🇳🇱",
-  "Канада": "🇨🇦",
-  "Дания": "🇩🇰",
-  "Австралия": "🇦🇺",
-  "Новая Зеландия": "🇳🇿",
-  "Япония": "🇯🇵",
-  "Италия": "🇮🇹",
-  "Испания": "🇪🇸",
-  "Норвегия": "🇳🇴",
-  "Швеция": "🇸🇪",
-  "Польша": "🇵🇱",
-  "Франция": "🇫🇷",
-  "Аргентина": "🇦🇷",
-  "Бразилия": "🇧🇷",
-  "Индия": "🇮🇳",
-  "Таиланд": "🇹🇭",
-  "Китай": "🇨🇳",
-  "Южная Корея": "🇰🇷",
-  "Россия": "🇷🇺",
-};
+// Stage 5: replaced local COUNTRY_FLAGS duplicate with shared import.
+import { getCountryFlag } from "@/lib/countries";
 
 /* ─── Lat/Lng → SVG coordinate conversion ─── */
 function toSvg(lat: number, lng: number): { x: number; y: number } {
@@ -211,7 +183,7 @@ function BreweryTooltip({
   svgWidth: number;
   svgHeight: number;
 }) {
-  const flag = COUNTRY_FLAGS[brewery.country] ?? "🍺";
+  const flag = getCountryFlag(brewery.country);
   const padding = 10;
   const tooltipW = 200;
   const tooltipH = 110;
@@ -582,7 +554,7 @@ export function BreweryMap({ onNavigateToBeer }: BreweryMapProps) {
             <ScrollArea className="max-h-80">
               <div className="space-y-1.5 pr-2">
                 {breweries.map((brewery) => {
-                  const flag = COUNTRY_FLAGS[brewery.country] ?? "🍺";
+                  const flag = getCountryFlag(brewery.country);
                   return (
                     <motion.button
                       key={brewery.id}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
+import { ClickableCard } from "@/components/beer/clickable-card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RatingStars } from "./rating-stars";
@@ -106,9 +107,10 @@ export function StyleExplorer({ onSearchStyle }: StyleExplorerProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, delay: index * 0.03 }}
           >
-            <Card
+            <ClickableCard
               className="cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white dark:bg-stone-800 hover:border-amber-400 dark:hover:border-amber-600 hover:shadow-xl hover:shadow-amber-200/30 dark:hover:shadow-amber-900/20 transition-all duration-300 ease-out h-full hover:scale-[1.02] grain-overlay overflow-hidden"
               onClick={() => handleStyleClick(styleInfo.style)}
+              ariaLabel={styleInfo.style}
             >
               <CardContent className="relative z-[2] p-4 flex flex-col gap-2">
                 <h3 className="font-bold text-sm sm:text-base text-foreground leading-tight group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors duration-200">
@@ -127,7 +129,7 @@ export function StyleExplorer({ onSearchStyle }: StyleExplorerProps) {
                   {styleInfo.exampleBeer}
                 </p>
               </CardContent>
-            </Card>
+            </ClickableCard>
           </motion.div>
         ))}
       </div>

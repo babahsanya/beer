@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
+import { cuidSchema } from '@/lib/validation';
 
 export async function GET(
   request: NextRequest,
@@ -13,7 +15,12 @@ export async function GET(
       return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
     }
 
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
+      return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+    }
+    const id = idResult.data;
 
     // For online beers (id starts with "online-"), return stored data from search
     // These beers don't exist in the DB, so return a mock detail from what we have
@@ -46,7 +53,7 @@ export async function GET(
       isFavorited: beer._count.favorites > 0,
     });
   } catch (error) {
-    console.error('Beer detail error:', error);
+    logger.error('Beer detail error', { error: String(error) });
     return NextResponse.json(
       { error: 'Ошибка при загрузке пива' },
       { status: 500 }

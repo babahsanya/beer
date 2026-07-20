@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
+import { ClickableCard } from "@/components/beer/clickable-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,10 +82,11 @@ export function FavoritesGrid() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       {favorites.map((fav) => (
-        <Card
+        <ClickableCard
           key={fav.id}
           className="group cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl hover:border-amber-400 dark:hover:border-amber-600 hover:shadow-lg hover:shadow-amber-200/30 dark:hover:shadow-amber-900/20 hover:scale-[1.01] grain-overlay transition-all duration-300 ease-out"
           onClick={() => selectBeer(fav.beer)}
+          ariaLabel={fav.beer.name}
         >
           <CardContent className="relative z-[2] p-3 sm:p-4">
             <div className="flex gap-3">
@@ -131,7 +133,7 @@ export function FavoritesGrid() {
               </div>
             </div>
           </CardContent>
-        </Card>
+        </ClickableCard>
       ))}
     </div>
   );

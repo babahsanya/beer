@@ -228,37 +228,13 @@ export function localizeBreweryType(type: string): string {
   return BREWERY_TYPES_RU[type.toLowerCase()] || type;
 }
 
-// ─── Country flags ───────────────────────────────────────────────────────────
-
-const COUNTRY_FLAGS: Record<string, string> = {
-  'United States': '🇺🇸', 'Belgium': '🇧🇪', 'Germany': '🇩🇪',
-  'United Kingdom': '🇬🇧', 'Czech Republic': '🇨🇿', 'Netherlands': '🇳🇱',
-  'Ireland': '🇮🇪', 'Denmark': '🇩🇰', 'Japan': '🇯🇵', 'Australia': '🇦🇺',
-  'Norway': '🇳🇴', 'Sweden': '🇸🇪', 'Canada': '🇨🇦', 'Italy': '🇮🇹',
-  'France': '🇫🇷', 'Poland': '🇵🇱', 'Brazil': '🇧🇷', 'Mexico': '🇲🇽',
-  'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'South Korea': '🇰🇷', 'New Zealand': '🇳🇿',
-  'Argentina': '🇦🇷', 'Thailand': '🇹🇭', 'Spain': '🇪🇸', 'Portugal': '🇵🇹',
-  'Austria': '🇦🇹', 'Switzerland': '🇨🇭', 'Russia': '🇷🇺', 'Finland': '🇫🇮',
-  'Iceland': '🇮🇸', 'South Africa': '🇿🇦', 'Chile': '🇨🇱', 'Colombia': '🇨🇴',
-  'India': '🇮🇳', 'China': '🇨🇳', 'Singapore': '🇸🇬', 'Taiwan': '🇹🇼',
-  'Estonia': '🇪🇪', 'Latvia': '🇱🇻', 'Lithuania': '🇱🇹', 'Ukraine': '🇺🇦',
-  'Croatia': '🇭🇷', 'Romania': '🇷🇴', 'Hungary': '🇭🇺', 'Greece': '🇬🇷',
-  'Turkey': '🇹🇷', 'Israel': '🇮🇱', 'Jamaica': '🇯🇲', 'Dominican Republic': '🇩🇴',
-  'Costa Rica': '🇨🇷', 'Panama': '🇵🇦', 'Peru': '🇵🇪', 'Ecuador': '🇪🇨',
-  'Uruguay': '🇺🇾', 'Venezuela': '🇻🇪', 'Nigeria': '🇳🇬', 'Kenya': '🇰🇪',
-  'Ghana': '🇬🇭', 'Egypt': '🇪🇬', 'Morocco': '🇲🇦', 'Serbia': '🇷🇸',
-  'Bulgaria': '🇧🇬', 'Slovakia': '🇸🇰', 'Slovenia': '🇸🇮',
-  'Philippines': '🇵🇭', 'Vietnam': '🇻🇳', 'Cuba': '🇨🇺', 'Nicaragua': '🇳🇮',
-};
-
-export function getCountryFlag(countryName: string): string {
-  if (!countryName) return '🍺';
-  return COUNTRY_FLAGS[countryName] || '🍺';
-}
-
-export function formatCountryWithFlag(countryName: string): string {
-  return `${getCountryFlag(countryName)} ${countryName}`;
-}
+// ─── Country flags — re-exported from shared lib (Stage 5) ────────────────
+// Was duplicated here with different fallback emoji (🍺 vs 🌍) and different
+// coverage from lib/countries.ts. Single source of truth now.
+export {
+  getCountryFlag,
+  formatCountryWithFlag,
+} from "@/lib/countries";
 
 // ─── In-memory cache ─────────────────────────────────────────────────────────
 

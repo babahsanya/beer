@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { readLimiter, writeLimiter, getClientIp } from "@/lib/rate-limit";
 import {
   apiSuccess,
@@ -10,6 +11,11 @@ import {
   apiInternalError,
   requireUser,
 } from "@/lib/api";
+import {
+  cuidSchema,
+  tastingEntryUpdateSchema,
+  formatZodErrors,
+} from "@/lib/validation";
 
 /**
  * GET /api/journal/[id] — fetch one tasting entry (must be the owner).
@@ -32,7 +38,13 @@ export async function GET(
     if (userOrError instanceof NextResponse) return userOrError;
     const user = userOrError;
 
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
+      return apiBadRequest("Некорректный ID");
+    }
+    const id = idResult.data;
+
     const entry = await db.tastingEntry.findUnique({ where: { id } });
 
     if (!entry) {
@@ -45,7 +57,7 @@ export async function GET(
 
     return apiSuccess(entry);
   } catch (error) {
-    console.error("Get journal entry error:", error);
+    logger.error("Get journal entry error", { error: String(error) });
     return apiInternalError("Ошибка при загрузке записи");
   }
 }
@@ -53,7 +65,7 @@ export async function GET(
 /**
  * PUT /api/journal/[id] — update one tasting entry.
  * Verifies ownership (entry.userId === user.id) before updating; returns
- * apiForbidden() otherwise.
+ * apiForbidden() otherwise. Body validated via tastingEntryUpdateSchema.
  */
 export async function PUT(
   request: NextRequest,
@@ -73,7 +85,13 @@ export async function PUT(
     if (userOrError instanceof NextResponse) return userOrError;
     const user = userOrError;
 
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
+      return apiBadRequest("Некорректный ID");
+    }
+    const id = idResult.data;
+
     const existing = await db.tastingEntry.findUnique({ where: { id } });
 
     if (!existing) {
@@ -84,78 +102,34 @@ export async function PUT(
       return apiForbidden();
     }
 
-    let body: Record<string, unknown>;
+    let body: unknown;
     try {
       body = await request.json();
     } catch {
       return apiBadRequest("Некорректный JSON");
     }
 
-    const {
-      beerName,
-      beerStyle,
-      brewery,
-      abv,
-      country,
-      personalRating,
-      aroma,
-      taste,
-      appearance,
-      mouthfeel,
-      comment,
-      location,
-      glassType,
-      wouldBuyAgain,
-    } = body;
+    const parsed = tastingEntryUpdateSchema.safeParse(body);
+    if (!parsed.success) {
+      return apiBadRequest("Некорректные данные", formatZodErrors(parsed.error));
+    }
+
+    // Build partial update payload — only fields that were provided.
+    const data: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed.data)) {
+      if (value !== undefined) {
+        data[key] = value;
+      }
+    }
 
     const entry = await db.tastingEntry.update({
       where: { id },
-      data: {
-        ...(beerName !== undefined && { beerName: String(beerName).trim() }),
-        ...(beerStyle !== undefined && {
-          beerStyle: String(beerStyle).trim(),
-        }),
-        ...(brewery !== undefined && { brewery: String(brewery).trim() }),
-        ...(abv !== undefined && { abv: Number(abv) || 0 }),
-        ...(country !== undefined && { country: String(country).trim() }),
-        ...(personalRating !== undefined && {
-          personalRating: Math.min(
-            5,
-            Math.max(0, parseInt(String(personalRating), 10) || 0),
-          ),
-        }),
-        ...(aroma !== undefined && {
-          aroma: Math.min(5, Math.max(0, parseInt(String(aroma), 10) || 0)),
-        }),
-        ...(taste !== undefined && {
-          taste: Math.min(5, Math.max(0, parseInt(String(taste), 10) || 0)),
-        }),
-        ...(appearance !== undefined && {
-          appearance: Math.min(
-            5,
-            Math.max(0, parseInt(String(appearance), 10) || 0),
-          ),
-        }),
-        ...(mouthfeel !== undefined && {
-          mouthfeel: Math.min(
-            5,
-            Math.max(0, parseInt(String(mouthfeel), 10) || 0),
-          ),
-        }),
-        ...(comment !== undefined && { comment: String(comment).trim() }),
-        ...(location !== undefined && { location: String(location).trim() }),
-        ...(glassType !== undefined && {
-          glassType: String(glassType).trim(),
-        }),
-        ...(wouldBuyAgain !== undefined && {
-          wouldBuyAgain: Boolean(wouldBuyAgain),
-        }),
-      },
+      data,
     });
 
     return apiSuccess({ entry });
   } catch (error) {
-    console.error("Update journal entry error:", error);
+    logger.error("Update journal entry error", { error: String(error) });
     return apiInternalError("Ошибка при обновлении записи");
   }
 }
@@ -183,7 +157,13 @@ export async function DELETE(
     if (userOrError instanceof NextResponse) return userOrError;
     const user = userOrError;
 
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
+      return apiBadRequest("Некорректный ID");
+    }
+    const id = idResult.data;
+
     const existing = await db.tastingEntry.findUnique({ where: { id } });
 
     if (!existing) {
@@ -198,7 +178,7 @@ export async function DELETE(
 
     return apiSuccess({ deleted: id });
   } catch (error) {
-    console.error("Delete journal entry error:", error);
+    logger.error("Delete journal entry error", { error: String(error) });
     return apiInternalError("Ошибка при удалении записи");
   }
 }

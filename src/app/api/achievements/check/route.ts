@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { writeLimiter, getClientIp } from '@/lib/rate-limit';
 import {
   apiSuccess,
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess({ achievements });
   } catch (error) {
-    console.error('Error syncing achievements:', error);
+    logger.error('Error syncing achievements', { error: String(error) });
     return apiInternalError('Ошибка синхронизации достижений');
   }
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
+import { cuidSchema } from '@/lib/validation';
 
 export async function GET(
   request: NextRequest,
@@ -13,7 +15,12 @@ export async function GET(
       return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
     }
 
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
+      return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+    }
+    const id = idResult.data;
 
     const currentBeer = await db.beer.findUnique({ where: { id } });
     if (!currentBeer) {
@@ -108,7 +115,7 @@ export async function GET(
 
     return NextResponse.json({ similar });
   } catch (error) {
-    console.error('Similar beers error:', error);
+    logger.error('Similar beers error', { error: String(error) });
     return NextResponse.json(
       { error: 'Ошибка при загрузке похожих пив' },
       { status: 500 }

@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=BeerID
+Name[ru]=BeerID — Пивной справочник
+GenericName=Beer Catalog
+GenericName[ru]=Пивной справочник
+Comment=Personal beer journal — search, ratings, tasting notes, recommendations
+Comment[ru]=Персональный журнал и гид по пиву
+Keywords=beer;пиво;craft;крафт;catalog;справочник;Untappd;
+Keywords[ru]=пиво;справочник;журнал;крафт;
+TryExec=/usr/bin/env
+Exec=bash -c 'cd "$(dirname %k 2>/dev/null || echo "$PWD")" && bash ./start.sh'
+Path=
+Icon=beer
+Terminal=true
+StartupNotify=true
+Categories=FoodAndDrink;Utility;Database;
+StartupWMClass=beerid

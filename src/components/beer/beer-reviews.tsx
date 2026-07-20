@@ -13,6 +13,7 @@ import { MessageSquare, Loader2, Star, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { apiGet, apiPost, isUnauthorized, getErrorMessage } from "@/lib/api-client";
+import { plural, PLURAL_REVIEW } from "@/lib/plural";
 import type { Review } from "@/types/beer";
 
 interface BeerReviewsProps {
@@ -342,11 +343,7 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
           {/* Reviews counter */}
           <p className="text-xs text-muted-foreground text-center">
             Показано {reviews.length} из {total}{" "}
-            {total === 1
-              ? "отзыва"
-              : total >= 2 && total <= 4
-              ? "отзыва"
-              : "отзывов"}
+            {plural(total, PLURAL_REVIEW)}
           </p>
 
           <div className="space-y-3">

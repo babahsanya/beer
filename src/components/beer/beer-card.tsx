@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
+import { ClickableCard } from "@/components/beer/clickable-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronRight, Beer as BeerIcon, Scale, Globe, Building2, MapPin, ExternalLink } from "lucide-react";
@@ -75,9 +76,10 @@ export function BeerCard({ beer, onClick, index = 0 }: BeerCardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: index * 0.05 }}
     >
-      <Card
+      <ClickableCard
         className={`beer-card-hover group cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl border-l-4 ${styleBorder} hover:shadow-xl hover:shadow-amber-200/30 dark:hover:shadow-amber-900/20 transition-all duration-300`}
         onClick={onClick}
+        ariaLabel={beer.name}
       >
         <CardContent className="p-3 sm:p-4">
           <div className="flex gap-3">
@@ -236,7 +238,7 @@ export function BeerCard({ beer, onClick, index = 0 }: BeerCardProps) {
             </div>
           </div>
         </CardContent>
-      </Card>
+      </ClickableCard>
     </motion.div>
   );
 }

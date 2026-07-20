@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Target, Star, Award, Lock, Trophy, GraduationCap, Crown, Sparkles } from "lucide-react";
 import { useBeerStore } from "@/store/beer-store";
+import { plural, PLURAL_BEER, PLURAL_STYLE } from "@/lib/plural";
 
 // ── Style visual config ──────────────────────────────────────────────
 const styleConfig: Record<string, { emoji: string; color: string; bg: string; ruName: string }> = {
@@ -415,20 +416,12 @@ export function StyleProgress({ onSearchStyle }: StyleProgressProps) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+// Stage 5: replaced inline getPluralBeer / getPluralStyle with shared
+// plural helper from @/lib/plural (handles 11-14 edge case correctly).
 function getPluralBeer(n: number): string {
-  const abs = Math.abs(n) % 100;
-  const lastDigit = abs % 10;
-  if (abs > 10 && abs < 20) return "пив";
-  if (lastDigit > 1 && lastDigit < 5) return "пива";
-  if (lastDigit === 1) return "пиво";
-  return "пив";
+  return plural(n, PLURAL_BEER);
 }
 
 function getPluralStyle(n: number): string {
-  const abs = Math.abs(n) % 100;
-  const lastDigit = abs % 10;
-  if (abs > 10 && abs < 20) return "стилей";
-  if (lastDigit > 1 && lastDigit < 5) return "стиля";
-  if (lastDigit === 1) return "стиль";
-  return "стилей";
+  return plural(n, PLURAL_STYLE);
 }

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
+import { ClickableCard } from "@/components/beer/clickable-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "./empty-state";
 import { Clock, Trash2, Search } from "lucide-react";
@@ -138,10 +139,11 @@ export function HistoryList({ onSearch }: HistoryListProps) {
       {/* List */}
       <div className="space-y-2">
         {history.map((item) => (
-          <Card
+          <ClickableCard
             key={item.id}
             className="group cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white dark:bg-stone-800 hover:border-amber-400 dark:hover:border-amber-600 transition-all duration-200"
             onClick={() => handleSearch(item.query)}
+            ariaLabel={`Поиск: ${item.query}`}
           >
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-3">
@@ -161,7 +163,7 @@ export function HistoryList({ onSearch }: HistoryListProps) {
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </ClickableCard>
         ))}
       </div>
     </div>

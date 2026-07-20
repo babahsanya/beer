@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
+
+const topQuerySchema = z.object({
+  period: z.enum(['day', 'week', 'month', 'all']).default('week'),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,9 +17,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
     }
 
+    const searchParams = request.nextUrl.searchParams;
+    const parsed = topQuerySchema.safeParse({
+      period: searchParams.get('period') ?? undefined,
+      limit: searchParams.get('limit') ?? undefined,
+    });
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Некорректные параметры' },
+        { status: 400 },
+      );
+    }
+    const { period, limit } = parsed.data;
+
+    // Sort by the activity metric that matches the requested period:
+    //   day   → beers with the most checkins today (dailyCheckins)
+    //   week  → beers with the most checkins this month (best weekly proxy)
+    //   month → same as week (monthlyCheckins)
+    //   all   → all-time highest rated
+    const orderBy =
+      period === 'day'
+        ? { dailyCheckins: 'desc' as const }
+        : period === 'week' || period === 'month'
+          ? { monthlyCheckins: 'desc' as const }
+          : { rating: 'desc' as const };
+
     const beers = await db.beer.findMany({
-      orderBy: { rating: 'desc' },
-      take: 5,
+      orderBy,
+      take: limit,
       include: {
         _count: {
           select: { reviews: true },
@@ -41,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ beers: formatted });
   } catch (error) {
-    console.error('Top beers API error:', error);
+    logger.error('Top beers API error', { error: String(error) });
     return NextResponse.json({ error: 'Ошибка загрузки' }, { status: 500 });
   }
 }

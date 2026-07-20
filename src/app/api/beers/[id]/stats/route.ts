@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
+import { cuidSchema } from '@/lib/validation';
 
 // Simple deterministic hash from string
 function hashCode(str: string): number {
@@ -24,7 +26,12 @@ export async function GET(
       return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
     }
 
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
+      return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+    }
+    const id = idResult.data;
 
     const beer = await db.beer.findUnique({ where: { id } });
     if (!beer) {
@@ -78,7 +85,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('Stats error:', error);
+    logger.error('Stats error', { error: String(error) });
     return NextResponse.json(
       { error: 'Ошибка при загрузке статистики' },
       { status: 500 }

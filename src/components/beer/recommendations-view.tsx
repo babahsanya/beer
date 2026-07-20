@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { ClickableCard } from "@/components/beer/clickable-card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -178,9 +179,10 @@ export function RecommendationsView() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25, delay: index * 0.05 }}
             >
-              <Card
+              <ClickableCard
                 className={`group cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white/70 dark:bg-stone-800/70 backdrop-blur-xl border-l-4 ${styleBorder} hover:shadow-xl hover:shadow-amber-200/30 dark:hover:shadow-amber-900/20 transition-all duration-300`}
                 onClick={() => handleBeerClick(beer)}
+                ariaLabel={beer.name}
               >
                 <CardContent className="p-3 sm:p-4">
                   <div className="flex gap-3">
@@ -254,7 +256,7 @@ export function RecommendationsView() {
                     </div>
                   </div>
                 </CardContent>
-              </Card>
+              </ClickableCard>
             </motion.div>
           );
         })}

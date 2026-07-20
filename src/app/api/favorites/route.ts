@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { readLimiter, writeLimiter, getClientIp } from "@/lib/rate-limit";
+import { beerIdSchema, formatZodErrors } from "@/lib/validation";
 import {
   apiSuccess,
   apiBadRequest,
@@ -26,12 +29,14 @@ export async function GET(request: NextRequest) {
     if (userOrError instanceof NextResponse) return userOrError;
     const user = userOrError;
 
-    const beerId = request.nextUrl.searchParams.get("beerId");
+    const beerIdRaw = request.nextUrl.searchParams.get("beerId");
 
-    if (beerId) {
-      if (beerId.length > 100) {
+    if (beerIdRaw) {
+      const beerIdResult = beerIdSchema.safeParse(beerIdRaw);
+      if (!beerIdResult.success) {
         return apiBadRequest("Невалидный beerId");
       }
+      const beerId = beerIdResult.data;
       const favorite = await db.favorite.findUnique({
         where: { userId_beerId: { userId: user.id, beerId } },
         include: { beer: true },
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
     });
     return apiSuccess(favorites);
   } catch (error) {
-    console.error("Get favorites error:", error);
+    logger.error("Get favorites error", { error: String(error) });
     return apiInternalError("Ошибка при загрузке избранного");
   }
 }
@@ -68,17 +73,19 @@ export async function POST(request: NextRequest) {
     if (userOrError instanceof NextResponse) return userOrError;
     const user = userOrError;
 
-    let body: Record<string, unknown>;
+    let body: unknown;
     try {
       body = await request.json();
     } catch {
       return apiBadRequest("Укажите корректный beerId");
     }
-    const { beerId } = body;
 
-    if (!beerId || typeof beerId !== "string" || beerId.length > 100) {
-      return apiBadRequest("Укажите корректный beerId");
+    const bodySchema = z.object({ beerId: beerIdSchema }).strict();
+    const parsed = bodySchema.safeParse(body);
+    if (!parsed.success) {
+      return apiBadRequest("Укажите корректный beerId", formatZodErrors(parsed.error));
     }
+    const { beerId } = parsed.data;
 
     const beer = await db.beer.findUnique({ where: { id: beerId } });
     if (!beer) {
@@ -94,7 +101,7 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess({ id: favorite.id, favorite });
   } catch (error) {
-    console.error("Add favorite error:", error);
+    logger.error("Add favorite error", { error: String(error) });
     return apiInternalError("Ошибка при добавлении в избранное");
   }
 }
@@ -116,7 +123,7 @@ export async function DELETE(request: NextRequest) {
     const user = userOrError;
 
     const searchParams = request.nextUrl.searchParams;
-    const beerId = searchParams.get("beerId");
+    const beerIdRaw = searchParams.get("beerId");
     const deleteAll = searchParams.get("all") === "true";
 
     if (deleteAll) {
@@ -124,9 +131,15 @@ export async function DELETE(request: NextRequest) {
       return apiSuccess({ deleted: result.count });
     }
 
-    if (!beerId || beerId.length > 100) {
+    if (!beerIdRaw) {
       return apiBadRequest("Укажите beerId или all=true");
     }
+
+    const beerIdResult = beerIdSchema.safeParse(beerIdRaw);
+    if (!beerIdResult.success) {
+      return apiBadRequest("Укажите beerId или all=true");
+    }
+    const beerId = beerIdResult.data;
 
     const deleted = await db.favorite.deleteMany({
       where: { userId: user.id, beerId },
@@ -138,7 +151,7 @@ export async function DELETE(request: NextRequest) {
 
     return apiSuccess({ deleted: deleted.count });
   } catch (error) {
-    console.error("Remove favorite error:", error);
+    logger.error("Remove favorite error", { error: String(error) });
     return apiInternalError("Ошибка при удалении из избранного");
   }
 }

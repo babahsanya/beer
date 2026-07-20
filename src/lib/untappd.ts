@@ -7,6 +7,8 @@
  * Rate limit: 100 requests/hour per application (we cache aggressively).
  */
 
+import { logger } from "@/lib/logger";
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface UntappdBrewery {
@@ -239,14 +241,14 @@ export async function searchBeers(
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
-      console.error(`[Untappd] search/beer ${res.status}: ${errBody.slice(0, 200)}`);
+      logger.error('[Untappd] search/beer', { status: res.status, body: errBody.slice(0, 200) });
       return [];
     }
 
     const data = (await res.json()) as UntappdSearchResponse;
     return data?.response?.beers?.items || [];
   } catch (err) {
-    console.error('[Untappd] searchBeers error:', (err as Error).message);
+    logger.error('[Untappd] searchBeers error', { error: String(err) });
     return [];
   }
 }

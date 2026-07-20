@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
 import {
   apiSuccess,
@@ -9,6 +11,13 @@ import {
   apiInternalError,
   requireUser,
 } from '@/lib/api';
+import {
+  cuidSchema,
+  ratingSchema,
+  commentSchema,
+  smallLimitSchema,
+  formatZodErrors,
+} from '@/lib/validation';
 
 export async function GET(
   request: NextRequest,
@@ -21,14 +30,22 @@ export async function GET(
       return apiTooManyRequests();
     }
 
-    const { id } = await params;
-    const searchParams = request.nextUrl.searchParams;
-    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '10', 10), 1), 50);
-    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
-
-    if (typeof id !== 'string' || id.length > 100 || id.includes('/')) {
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
       return apiBadRequest('Некорректный ID');
     }
+    const id = idResult.data;
+
+    const searchParams = request.nextUrl.searchParams;
+    const queryParsed = smallLimitSchema.safeParse({
+      limit: searchParams.get('limit') ?? undefined,
+      offset: searchParams.get('offset') ?? undefined,
+    });
+    if (!queryParsed.success) {
+      return apiBadRequest('Некорректные параметры', formatZodErrors(queryParsed.error));
+    }
+    const { limit, offset } = queryParsed.data;
 
     const beer = await db.beer.findUnique({ where: { id }, select: { id: true } });
     if (!beer) {
@@ -55,7 +72,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('Reviews error:', error);
+    logger.error('Reviews error', { error: String(error) });
     return apiInternalError('Ошибка при загрузке отзывов');
   }
 }
@@ -75,38 +92,44 @@ export async function POST(
     if (userOrRes instanceof NextResponse) return userOrRes;
     const user = userOrRes;
 
-    const { id } = await params;
-
-    if (typeof id !== 'string' || id.length > 100 || id.includes('/')) {
+    const { id: rawId } = await params;
+    const idResult = cuidSchema.safeParse(rawId);
+    if (!idResult.success) {
       return apiBadRequest('Некорректный ID');
     }
+    const id = idResult.data;
 
     const beer = await db.beer.findUnique({ where: { id }, select: { id: true } });
     if (!beer) {
       return apiNotFound('Пиво не найдено');
     }
 
-    const body = await request.json();
-    const { rating, comment } = body as Record<string, unknown>;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return apiBadRequest('Некорректный JSON');
+    }
+
+    const bodySchema = z.object({
+      rating: ratingSchema,
+      comment: commentSchema.optional(),
+    });
+    const parsed = bodySchema.safeParse(body);
+    if (!parsed.success) {
+      return apiBadRequest(
+        'Оценка должна быть от 0.5 до 5 с шагом 0.5',
+        formatZodErrors(parsed.error),
+      );
+    }
+    const { rating } = parsed.data;
 
     // Author from session — never trust client for identity.
     const safeAuthor = (user.name || user.email).slice(0, 50);
 
-    const ratingNum = Number(rating);
-    if (
-      isNaN(ratingNum) ||
-      ratingNum < 0.5 ||
-      ratingNum > 5 ||
-      ratingNum % 0.5 !== 0
-    ) {
-      return apiBadRequest('Оценка должна быть от 0.5 до 5 с шагом 0.5');
-    }
-
-    const rawComment = typeof comment === 'string' ? comment : '';
-    if (rawComment.length > 500) {
-      return apiBadRequest('Комментарий не должен превышать 500 символов');
-    }
-    const safeComment = rawComment.trim().replace(/[<>"'&]/g, '');
+    // commentSchema already trims; we additionally strip HTML special chars
+    // for defense in depth (the value is rendered on the beer detail page).
+    const safeComment = (parsed.data.comment ?? '').replace(/[<>"'&]/g, '');
 
     // Cap total reviews per beer to keep the page snappy.
     const existingReviewCount = await db.review.count({ where: { beerId: id } });
@@ -121,12 +144,12 @@ export async function POST(
         beerId: id,
         userId: user.id,
         author: safeAuthor,
-        rating: ratingNum,
+        rating,
         comment: safeComment,
       },
       update: {
         author: safeAuthor,
-        rating: ratingNum,
+        rating,
         comment: safeComment,
       },
     });
@@ -151,7 +174,7 @@ export async function POST(
 
     return apiSuccess(review);
   } catch (error) {
-    console.error('Create review error:', error);
+    logger.error('Create review error', { error: String(error) });
     return apiInternalError('Ошибка при создании отзыва');
   }
 }

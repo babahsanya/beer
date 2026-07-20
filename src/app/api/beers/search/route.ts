@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { searchLimiter, aiLimiter, getClientIp } from '@/lib/rate-limit';
 import { auth } from '@/lib/auth';
 import {
@@ -15,6 +16,7 @@ import {
 } from '@/lib/brewerydb';
 import { apiSuccess, apiBadRequest, apiTooManyRequests, apiInternalError } from '@/lib/api';
 import { escapeLike, expandAliases } from '@/lib/beer-aliases';
+import { searchQuerySchema, paginationSchema, formatZodErrors } from '@/lib/validation';
 
 // Two-row Levenshtein — O(min(la,lb)) memory instead of full O(la*lb) matrix.
 // Identical distance result to the classic DP, just doesn't keep the whole
@@ -180,7 +182,7 @@ async function searchOnlineOBD(
 
     return breweries.map(breweryToResult);
   } catch (err) {
-    console.error('[searchOnlineOBD] error:', (err as Error).message);
+    logger.error('[searchOnlineOBD] error', { error: String(err) });
     return [];
   }
 }
@@ -226,11 +228,11 @@ async function searchOnlineUntappd(
   try {
     const items = await searchBeersCached(qTrimmed, limit);
     if (items.length > 0) {
-      console.warn(`[searchOnline] Untappd: ${items.length} results for "${qTrimmed}"`);
+      logger.debug('[searchOnline] Untappd', { count: items.length, query: qTrimmed });
       return normalizeUntappdBeers(items) as unknown as Array<Record<string, unknown>>;
     }
   } catch (err) {
-    console.error('[searchOnline] Untappd error:', (err as Error).message);
+    logger.error('[searchOnline] Untappd error', { error: String(err) });
   }
 
   // Try English aliases
@@ -261,24 +263,34 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams;
-    const q = searchParams.get('q') || '';
 
-    if (q.length > 200 || /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(q)) {
-      return apiBadRequest('Некорректный запрос');
+    const paginationResult = paginationSchema.safeParse({
+      limit: searchParams.get('limit') ?? undefined,
+      offset: searchParams.get('offset') ?? undefined,
+    });
+    if (!paginationResult.success) {
+      return apiBadRequest(
+        'Некорректные параметры',
+        formatZodErrors(paginationResult.error),
+      );
     }
+    const { limit, offset } = paginationResult.data;
 
-    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20', 10), 1), 50);
-    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
     const sortBy = searchParams.get('sort') || 'rating';
     const noWeb = searchParams.get('noweb') === 'true';
 
-    if (!q.trim()) {
+    const qRaw = searchParams.get('q') ?? '';
+    if (qRaw.trim() === '') {
       return apiSuccess({
         beers: [], sources: [], pagination: { total: 0, limit, offset, hasMore: false },
       });
     }
 
-    const qTrimmed = q.trim();
+    const qResult = searchQuerySchema.safeParse(qRaw);
+    if (!qResult.success) {
+      return apiBadRequest('Некорректный запрос', formatZodErrors(qResult.error));
+    }
+    const qTrimmed = qResult.data;
 
     if (!noWeb) {
       const aiCheck = aiLimiter(clientIp);
@@ -402,7 +414,7 @@ export async function GET(request: NextRequest) {
       pagination: { total: totalMerged, limit, offset, hasMore: offset + mergedBeers.length < totalMerged },
     });
   } catch (error) {
-    console.error('Unified search error:', error);
+    logger.error('Unified search error', { error: String(error) });
     return apiInternalError('Ошибка при поиске пива');
   }
 }

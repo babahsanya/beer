@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { readLimiter, writeLimiter, getClientIp } from "@/lib/rate-limit";
 import {
   apiSuccess,
@@ -9,6 +11,7 @@ import {
   apiInternalError,
   requireUser,
 } from "@/lib/api";
+import { formatZodErrors } from "@/lib/validation";
 
 /**
  * Default achievement catalogue. Kept inline for now — Stage 5 will extract
@@ -119,7 +122,7 @@ export async function GET(request: NextRequest) {
 
     return apiSuccess({ achievements });
   } catch (error) {
-    console.error("Error fetching achievements:", error);
+    logger.error("Error fetching achievements", { error: String(error) });
     return apiInternalError("Ошибка загрузки достижений");
   }
 }
@@ -147,23 +150,27 @@ export async function POST(request: NextRequest) {
     if (userOrError instanceof NextResponse) return userOrError;
     const user = userOrError;
 
-    let body: Record<string, unknown>;
+    let body: unknown;
     try {
       body = await request.json();
     } catch {
       return apiBadRequest("Укажите корректный key достижения");
     }
 
-    const { key, increment = 1 } = body;
-
-    if (typeof key !== "string" || !/^[a-z_]{1,50}$/.test(key)) {
-      return apiBadRequest("Укажите корректный key достижения");
+    const bodySchema = z
+      .object({
+        key: z.string().max(50),
+        increment: z.number().int().min(0).max(100).default(1),
+      })
+      .strict();
+    const parsed = bodySchema.safeParse(body);
+    if (!parsed.success) {
+      return apiBadRequest(
+        "Укажите корректный key достижения",
+        formatZodErrors(parsed.error),
+      );
     }
-
-    const safeIncrement =
-      typeof increment === "number"
-        ? Math.min(Math.max(Math.round(increment), 1), 10)
-        : 1;
+    const { key, increment: safeIncrement } = parsed.data;
 
     // If the row already exists and is already unlocked, this is a no-op.
     const current = await db.userAchievement.findUnique({
@@ -209,7 +216,7 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess({ achievement });
   } catch (error) {
-    console.error("Error updating achievement:", error);
+    logger.error("Error updating achievement", { error: String(error) });
     return apiInternalError("Ошибка обновления достижения");
   }
 }

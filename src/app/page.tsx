@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTheme } from "next-themes";
 import { useBeerStore } from "@/store/beer-store";
@@ -30,19 +31,51 @@ import { TopBeers } from "@/components/beer/top-beers";
 import { BeerOfTheDay } from "@/components/beer/beer-of-the-day";
 import { HelpView } from "@/components/beer/help-view";
 import { SettingsView } from "@/components/beer/settings-view";
-import { BreweryMap } from "@/components/beer/brewery-map";
-import QuizView from "@/components/beer/quiz-view";
-import { CalculatorView } from "@/components/beer/calculator-view";
 import { apiGet, isUnauthorized } from "@/lib/api-client";
-import { AchievementsView } from "@/components/beer/achievements-view";
-import { RecommendationsView } from "@/components/beer/recommendations-view";
-import { EnhancedStats } from "@/components/beer/enhanced-stats";
-import { BeerRoulette } from "@/components/beer/beer-roulette";
-import { JournalView } from "@/components/beer/journal-view";
-import { StyleDistribution } from "@/components/beer/style-distribution";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+
+// ─── Code-split heavy views (Stage 5) ─────────────────────────────────
+// These views are 500-1000+ lines each with heavy deps (Framer Motion,
+// world map data, complex forms). Most users never visit them — load on
+// demand only. Reduces initial JS bundle significantly.
+const BreweryMap = dynamic(
+  () => import("@/components/beer/brewery-map").then((m) => m.BreweryMap),
+  { ssr: false, loading: () => <Skeleton className="h-[600px] w-full" /> },
+);
+const EnhancedStats = dynamic(
+  () => import("@/components/beer/enhanced-stats").then((m) => m.EnhancedStats),
+  { ssr: false, loading: () => <Skeleton className="h-[400px] w-full" /> },
+);
+const QuizView = dynamic(
+  () => import("@/components/beer/quiz-view"),
+  { ssr: false, loading: () => <Skeleton className="h-[500px] w-full" /> },
+);
+const BeerRoulette = dynamic(
+  () => import("@/components/beer/beer-roulette").then((m) => m.BeerRoulette),
+  { ssr: false, loading: () => <Skeleton className="h-[400px] w-full" /> },
+);
+const JournalView = dynamic(
+  () => import("@/components/beer/journal-view").then((m) => m.JournalView),
+  { ssr: false, loading: () => <Skeleton className="h-[600px] w-full" /> },
+);
+const CalculatorView = dynamic(
+  () => import("@/components/beer/calculator-view").then((m) => m.CalculatorView),
+  { ssr: false, loading: () => <Skeleton className="h-[500px] w-full" /> },
+);
+const AchievementsView = dynamic(
+  () => import("@/components/beer/achievements-view").then((m) => m.AchievementsView),
+  { ssr: false, loading: () => <Skeleton className="h-[400px] w-full" /> },
+);
+const RecommendationsView = dynamic(
+  () => import("@/components/beer/recommendations-view").then((m) => m.RecommendationsView),
+  { ssr: false, loading: () => <Skeleton className="h-[400px] w-full" /> },
+);
+const StyleDistribution = dynamic(
+  () => import("@/components/beer/style-distribution").then((m) => m.StyleDistribution),
+  { ssr: false, loading: () => <Skeleton className="h-[400px] w-full" /> },
+);
 import { Slider } from "@/components/ui/slider";
 import {
   Popover,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { readLimiter, writeLimiter, getClientIp } from "@/lib/rate-limit";
 import {
   apiSuccess,
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
 
     return apiSuccess({ history: formatted });
   } catch (error) {
-    console.error("History error:", error);
+    logger.error("History error", { error: String(error) });
     return apiInternalError("Ошибка при загрузке истории");
   }
 }
@@ -89,7 +90,7 @@ export async function DELETE(request: NextRequest) {
 
     return apiSuccess({ deleted: result.count });
   } catch (error) {
-    console.error("History clear error:", error);
+    logger.error("History clear error", { error: String(error) });
     return apiInternalError("Ошибка при очистке истории");
   }
 }
