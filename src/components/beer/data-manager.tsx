@@ -13,6 +13,7 @@ import { Database, Download, Upload, AlertTriangle, Loader2, CheckCircle2, X } f
 import { useToast } from "@/hooks/use-toast";
 
 interface ImportPreview {
+  version?: string;
   favorites?: number;
   tastingJournal?: number;
   viewHistory?: number;

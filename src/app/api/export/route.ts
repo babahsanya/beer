@@ -1,32 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readLimiter, getClientIp } from '@/lib/rate-limit';
+import { apiTooManyRequests, apiInternalError, requireUser } from '@/lib/api';
 
+/**
+ * GET /api/export
+ *
+ * Authenticated users only. Returns their personal data (favorites, journal,
+ * view history, search history, achievements) as a JSON backup file.
+ *
+ * Capped at take:1000 per table to keep response sizes bounded.
+ */
 export async function GET(request: NextRequest) {
   try {
     const ip = getClientIp(request);
     const rl = readLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests();
     }
+
+    const userOrRes = await requireUser();
+    if (userOrRes instanceof NextResponse) return userOrRes;
+    const user = userOrRes;
 
     const [favorites, tastingJournal, viewHistory, searchHistory, achievements] =
       await Promise.all([
         db.favorite.findMany({
+          where: { userId: user.id },
           include: { beer: true },
           orderBy: { createdAt: 'desc' },
+          take: 1000,
         }),
         db.tastingEntry.findMany({
+          where: { userId: user.id },
           orderBy: { createdAt: 'desc' },
+          take: 1000,
         }),
         db.viewHistory.findMany({
+          where: { userId: user.id },
           orderBy: { createdAt: 'desc' },
+          take: 1000,
         }),
         db.searchHistory.findMany({
+          where: { userId: user.id },
           orderBy: { createdAt: 'desc' },
+          take: 1000,
         }),
         db.userAchievement.findMany({
+          where: { userId: user.id },
           orderBy: { createdAt: 'desc' },
+          take: 1000,
         }),
       ]);
 
@@ -103,6 +126,15 @@ export async function GET(request: NextRequest) {
         totalFavorites: favorites.length,
         totalTastings: tastingJournal.length,
         totalStylesExplored: uniqueStyles.size,
+        // Flag any table that hit the take:1000 cap — the user's full dataset
+        // did not fit in this export and should be re-exported with filtering
+        // or the cap should be raised.
+        truncated:
+          favorites.length >= 1000 ||
+          tastingJournal.length >= 1000 ||
+          viewHistory.length >= 1000 ||
+          searchHistory.length >= 1000 ||
+          achievements.length >= 1000,
       },
     };
 
@@ -117,13 +149,12 @@ export async function GET(request: NextRequest) {
         'Content-Disposition': `attachment; filename="beerid-backup-${new Date().toISOString().slice(0, 10)}.json"`,
         'Content-Length': bytes.toString(),
         'X-File-Size-KB': sizeKB,
+        // Backup contains personal data — never cache on disk or in proxies.
+        'Cache-Control': 'no-store',
       },
     });
   } catch (error) {
     console.error('Export error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при экспорте данных' },
-      { status: 500 }
-    );
+    return apiInternalError('Ошибка при экспорте данных');
   }
 }

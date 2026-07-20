@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -30,48 +30,81 @@ model Beer {
   favorites       Favorite[]
   trendingEntries TrendingBeer[]
   viewHistory     ViewHistory[]
+
+  @@index([style])
+  @@index([country])
+  @@index([brewery])
+  @@index([untappdBid])
+  @@index([rating])
+  @@index([totalCheckins])
+  @@index([createdAt])
 }
 
 model Review {
   id        String   @id @default(cuid())
   beerId    String
+  userId    String
   author    String   @default("Anonymous")
   rating    Float    @default(0.0)
   comment   String   @default("")
   createdAt DateTime @default(now())
   beer      Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([beerId, userId])
+  @@index([beerId, createdAt])
+  @@index([userId])
 }
 
 model Favorite {
   id        String   @id @default(cuid())
   beerId    String
+  userId    String
   createdAt DateTime @default(now())
   beer      Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, beerId])
+  @@index([userId])
+  @@index([beerId])
+  @@index([createdAt])
 }
 
 model SearchHistory {
   id          String   @id @default(cuid())
+  userId      String
   query       String
   resultCount Int      @default(0)
   createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model TrendingBeer {
-  id          String   @id @default(cuid())
-  beerId      String   @unique
-  category    String   @default("global")
-  checkinDelta Int     @default(0)
-  rank        Int      @default(0)
-  updatedAt   DateTime @default(now())
-  beer        Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  beerId       String   @unique
+  category     String   @default("global")
+  checkinDelta Int      @default(0)
+  rank         Int      @default(0)
+  updatedAt    DateTime @default(now())
+  beer         Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+
+  @@index([category, rank])
 }
 
 model ViewHistory {
   id        String   @id @default(cuid())
   beerId    String
+  userId    String
   beerName  String   @default("")
   createdAt DateTime @default(now())
   beer      Beer     @relation(fields: [beerId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, beerId])
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model TastingEntry {
@@ -82,6 +115,7 @@ model TastingEntry {
   brewery         String   @default("")
   abv             Float    @default(0)
   country         String   @default("")
+  userId          String
   personalRating  Int      @default(0)
   aroma           Int      @default(0)
   taste           Int      @default(0)
@@ -93,17 +127,85 @@ model TastingEntry {
   wouldBuyAgain   Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, beerStyle])
 }
 
 model UserAchievement {
-  id          String   @id @default(cuid())
-  key         String   @unique
+  id          String    @id @default(cuid())
+  userId      String
+  key         String
   title       String
   description String
-  icon        String   @default("🍺")
-  progress    Int      @default(0)
-  target      Int      @default(1)
+  icon        String    @default("🍺")
+  progress    Int       @default(0)
+  target      Int       @default(1)
   unlockedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
+// ─── NextAuth models ────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  name          String?
+  accounts      Account[]
+  sessions      Session[]
+  favorites     Favorite[]
+  reviews       Review[]
+  viewHistory   ViewHistory[]
+  searchHistory SearchHistory[]
+  tastingEntries TastingEntry[]
+  achievements  UserAchievement[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }

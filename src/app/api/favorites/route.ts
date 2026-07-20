@@ -1,132 +1,144 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { readLimiter, writeLimiter, getClientIp } from "@/lib/rate-limit";
+import {
+  apiSuccess,
+  apiBadRequest,
+  apiNotFound,
+  apiTooManyRequests,
+  apiInternalError,
+  requireUser,
+} from "@/lib/api";
 
+/**
+ * GET /api/favorites
+ * GET /api/favorites?beerId=<id> — boolean check
+ */
 export async function GET(request: NextRequest) {
   try {
     const ip = getClientIp(request);
     const rl = readLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests("Слишком много запросов", Math.ceil((rl.resetAt - Date.now()) / 1000));
+    }
+
+    const userOrError = await requireUser();
+    if (userOrError instanceof NextResponse) return userOrError;
+    const user = userOrError;
+
+    const beerId = request.nextUrl.searchParams.get("beerId");
+
+    if (beerId) {
+      if (beerId.length > 100) {
+        return apiBadRequest("Невалидный beerId");
+      }
+      const favorite = await db.favorite.findUnique({
+        where: { userId_beerId: { userId: user.id, beerId } },
+        include: { beer: true },
+      });
+      return apiSuccess({ isFavorite: !!favorite, favorite });
     }
 
     const favorites = await db.favorite.findMany({
-      include: {
-        beer: true,
-      },
-      orderBy: { createdAt: 'desc' },
+      where: { userId: user.id },
+      include: { beer: true },
+      orderBy: { createdAt: "desc" },
     });
-
-    return NextResponse.json(favorites);
+    return apiSuccess(favorites);
   } catch (error) {
-    console.error('Get favorites error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при загрузке избранного' },
-      { status: 500 }
-    );
+    console.error("Get favorites error:", error);
+    return apiInternalError("Ошибка при загрузке избранного");
   }
 }
 
+/**
+ * POST /api/favorites
+ * Body: { beerId: string }
+ * Idempotent upsert by @@unique([userId, beerId]).
+ */
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
     const rl = writeLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests("Слишком много запросов", Math.ceil((rl.resetAt - Date.now()) / 1000));
     }
+
+    const userOrError = await requireUser();
+    if (userOrError instanceof NextResponse) return userOrError;
+    const user = userOrError;
 
     let body: Record<string, unknown>;
     try {
       body = await request.json();
     } catch {
-      return NextResponse.json(
-        { error: 'Укажите корректный beerId' },
-        { status: 400 }
-      );
+      return apiBadRequest("Укажите корректный beerId");
     }
     const { beerId } = body;
 
-    if (!beerId || typeof beerId !== 'string' || beerId.length > 100) {
-      return NextResponse.json(
-        { error: 'Укажите корректный beerId' },
-        { status: 400 }
-      );
+    if (!beerId || typeof beerId !== "string" || beerId.length > 100) {
+      return apiBadRequest("Укажите корректный beerId");
     }
 
-    // Check beer exists
     const beer = await db.beer.findUnique({ where: { id: beerId } });
     if (!beer) {
-      return NextResponse.json(
-        { error: 'Пиво не найдено' },
-        { status: 404 }
-      );
+      return apiNotFound("Пиво не найдено");
     }
 
-    // Check if already favorited
-    const existing = await db.favorite.findFirst({
-      where: { beerId },
-    });
-
-    if (existing) {
-      return NextResponse.json({ success: true, message: 'Уже в избранном', id: existing.id });
-    }
-
-    const favorite = await db.favorite.create({
-      data: { beerId },
+    const favorite = await db.favorite.upsert({
+      where: { userId_beerId: { userId: user.id, beerId } },
+      update: {},
+      create: { userId: user.id, beerId },
       include: { beer: true },
     });
 
-    return NextResponse.json({ success: true, id: favorite.id });
+    return apiSuccess({ id: favorite.id, favorite });
   } catch (error) {
-    console.error('Add favorite error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при добавлении в избранное' },
-      { status: 500 }
-    );
+    console.error("Add favorite error:", error);
+    return apiInternalError("Ошибка при добавлении в избранное");
   }
 }
 
+/**
+ * DELETE /api/favorites?beerId=<id>   — delete one
+ * DELETE /api/favorites?all=true       — delete all user's favorites
+ */
 export async function DELETE(request: NextRequest) {
   try {
     const ip = getClientIp(request);
     const rl = writeLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests("Слишком много запросов", Math.ceil((rl.resetAt - Date.now()) / 1000));
     }
 
+    const userOrError = await requireUser();
+    if (userOrError instanceof NextResponse) return userOrError;
+    const user = userOrError;
+
     const searchParams = request.nextUrl.searchParams;
-    const beerId = searchParams.get('beerId');
-    const deleteAll = searchParams.get('all') === 'true';
+    const beerId = searchParams.get("beerId");
+    const deleteAll = searchParams.get("all") === "true";
 
     if (deleteAll) {
-      await db.favorite.deleteMany();
-      return NextResponse.json({ success: true, message: 'Всё избранное удалено' });
+      const result = await db.favorite.deleteMany({ where: { userId: user.id } });
+      return apiSuccess({ deleted: result.count });
     }
 
     if (!beerId || beerId.length > 100) {
-      return NextResponse.json(
-        { error: 'Укажите beerId или all=true' },
-        { status: 400 }
-      );
+      return apiBadRequest("Укажите beerId или all=true");
     }
 
     const deleted = await db.favorite.deleteMany({
-      where: { beerId },
+      where: { userId: user.id, beerId },
     });
 
     if (deleted.count === 0) {
-      return NextResponse.json(
-        { error: 'Пиво не найдено в избранном' },
-        { status: 404 }
-      );
+      return apiNotFound("Пиво не найдено в избранном");
     }
 
-    return NextResponse.json({ success: true, message: 'Удалено из избранного' });
+    return apiSuccess({ deleted: deleted.count });
   } catch (error) {
-    console.error('Remove favorite error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при удалении из избранного' },
-      { status: 500 }
-    );
+    console.error("Remove favorite error:", error);
+    return apiInternalError("Ошибка при удалении из избранного");
   }
 }

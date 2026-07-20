@@ -87,21 +87,21 @@ const SEED_BEERS = [
 ];
 
 const SEED_TRENDING = [
-  { beerName: "Guinness Draught", category: "macro", position: 1 },
-  { beerName: "Corona Extra", category: "macro", position: 2 },
-  { beerName: "Heineken", category: "macro", position: 3 },
-  { beerName: "Stella Artois", category: "macro", position: 4 },
-  { beerName: "Bud Light", category: "macro", position: 5 },
-  { beerName: "Pliny the Elder", category: "craft", position: 1 },
-  { beerName: "The Alchemist Heady Topper", category: "craft", position: 2 },
-  { beerName: "Hill Farmstead Abner", category: "craft", position: 3 },
-  { beerName: "Tree House Julius", category: "craft", position: 4 },
-  { beerName: "Three Floyds Zombie Dust", category: "craft", position: 5 },
-  { beerName: "Pilsner Urquell", category: "global", position: 1 },
-  { beerName: "Weihenstephaner Hefeweissbier", category: "global", position: 2 },
-  { beerName: "Westmalle Tripel", category: "global", position: 3 },
-  { beerName: "Sierra Nevada Pale Ale", category: "global", position: 4 },
-  { beerName: "Duvel", category: "global", position: 5 },
+  { beerName: "Guinness Draught", category: "macro", rank: 1 },
+  { beerName: "Corona Extra", category: "macro", rank: 2 },
+  { beerName: "Heineken", category: "macro", rank: 3 },
+  { beerName: "Stella Artois", category: "macro", rank: 4 },
+  { beerName: "Bud Light", category: "macro", rank: 5 },
+  { beerName: "Pliny the Elder", category: "craft", rank: 1 },
+  { beerName: "The Alchemist Heady Topper", category: "craft", rank: 2 },
+  { beerName: "Hill Farmstead Abner", category: "craft", rank: 3 },
+  { beerName: "Tree House Julius", category: "craft", rank: 4 },
+  { beerName: "Three Floyds Zombie Dust", category: "craft", rank: 5 },
+  { beerName: "Pilsner Urquell", category: "global", rank: 1 },
+  { beerName: "Weihenstephaner Hefeweissbier", category: "global", rank: 2 },
+  { beerName: "Westmalle Tripel", category: "global", rank: 3 },
+  { beerName: "Sierra Nevada Pale Ale", category: "global", rank: 4 },
+  { beerName: "Duvel", category: "global", rank: 5 },
 ];
 
 const REVIEW_AUTHORS = ['Алексей', 'Мария', 'Дмитрий', 'Ольга', 'Сергей', 'Анна', 'Иван', 'Елена', 'Павел', 'Наталья', 'Михаил', 'Юлия', 'Артём', 'Виктория', 'Николай'];
@@ -146,25 +146,15 @@ async function main() {
     });
   }
 
-  // Seed reviews
-  console.log('💬 Seeding reviews...');
-  const allBeers = await prisma.beer.findMany();
-  for (const beer of allBeers) {
-    const numReviews = Math.floor(Math.random() * 5) + 1;
-    for (let i = 0; i < numReviews; i++) {
-      await prisma.review.create({
-        data: {
-          beerId: beer.id,
-          author: REVIEW_AUTHORS[Math.floor(Math.random() * REVIEW_AUTHORS.length)],
-          rating: Math.round((3 + Math.random() * 2) * 2) / 2,
-          comment: REVIEW_COMMENTS[Math.floor(Math.random() * REVIEW_COMMENTS.length)],
-        },
-      });
-    }
-  }
+  // NOTE: Review seeding is intentionally disabled — in Stage 2 the Review
+  // model gained a required `userId` field, and the seed script does not
+  // create users (the OAuth flow is the only way to provision users in
+  // this app). Re-enable only after a synthetic "demo user" is created here
+  // AND all seeded reviews reference that user's id.
 
   // Seed trending
   console.log('🔥 Seeding trending...');
+  const allBeers = await prisma.beer.findMany();
   for (const t of SEED_TRENDING) {
     const beer = allBeers.find(b => b.name === t.beerName);
     if (!beer) continue;
@@ -172,16 +162,15 @@ async function main() {
       data: {
         beerId: beer.id,
         category: t.category,
-        position: t.position,
+        rank: t.rank,
         checkinDelta: Math.floor(Math.random() * 5000) + 100,
       },
     });
   }
 
   const finalCount = await prisma.beer.count();
-  const reviewCount = await prisma.review.count();
   const trendingCount = await prisma.trendingBeer.count();
-  console.log(`✅ Seeding complete! ${finalCount} beers, ${reviewCount} reviews, ${trendingCount} trending entries.`);
+  console.log(`✅ Seeding complete! ${finalCount} beers, ${trendingCount} trending entries.`);
 }
 
 main()

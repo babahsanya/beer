@@ -1,60 +1,98 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { readLimiter, getClientIp } from '@/lib/rate-limit';
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { writeLimiter, getClientIp } from '@/lib/rate-limit';
+import {
+  apiSuccess,
+  apiTooManyRequests,
+  apiInternalError,
+  requireUser,
+} from '@/lib/api';
 
 const DEFAULT_ACHIEVEMENTS = [
-  { key: "first_search", title: "Первый поиск", description: "Выполните первый поиск", icon: "🔍", target: 1 },
-  { key: "beer_explorer", title: "Исследователь", description: "Просмотрите 10 разных сортов", icon: "🌍", target: 10 },
-  { key: "style_taster", title: "Дегустатор", description: "Попробуйте пиво 5 разных стилей", icon: "🍺", target: 5 },
-  { key: "favorite_collector", title: "Коллекционер", description: "Добавьте 5 пив в избранное", icon: "❤️", target: 5 },
-  { key: "quiz_master", title: "Знаток", description: "Наберите 8/10 в квизе", icon: "🧠", target: 1 },
-  { key: "night_owl", title: "Ночная сова", description: "Используйте приложение после 23:00", icon: "🦉", target: 1 },
-  { key: "beer_guru", title: "Пивной гуру", description: "Просмотрите все 35 сортов пива", icon: "🏆", target: 35 },
-  { key: "stout_lover", title: "Любитель стаутов", description: "Просмотрите 3 стаута", icon: "🖤", target: 3 },
-];
+  { key: 'first_search', title: 'Первый поиск', description: 'Выполните первый поиск', icon: '🔍', target: 1 },
+  { key: 'beer_explorer', title: 'Исследователь', description: 'Просмотрите 10 разных сортов', icon: '🌍', target: 10 },
+  { key: 'style_taster', title: 'Дегустатор', description: 'Попробуйте пиво 5 разных стилей', icon: '🍺', target: 5 },
+  { key: 'favorite_collector', title: 'Коллекционер', description: 'Добавьте 5 пив в избранное', icon: '❤️', target: 5 },
+  { key: 'quiz_master', title: 'Знаток', description: 'Наберите 8/10 в квизе', icon: '🧠', target: 1 },
+  { key: 'night_owl', title: 'Ночная сова', description: 'Используйте приложение после 23:00', icon: '🦉', target: 1 },
+  { key: 'beer_guru', title: 'Пивной гуру', description: 'Просмотрите все 35 сортов пива', icon: '🏆', target: 35 },
+  { key: 'stout_lover', title: 'Любитель стаутов', description: 'Просмотрите 3 стаута', icon: '🖤', target: 3 },
+] as const;
 
-async function syncProgress(key: string, progress: number) {
-  const achievement = await db.userAchievement.findUnique({ where: { key } });
+/**
+ * Sync progress for a single achievement. Only moves the needle forward
+ * (or unlocks if threshold hit). Idempotent — safe to call repeatedly.
+ */
+async function syncProgress(userId: string, key: string, progress: number) {
+  const achievement = await db.userAchievement.findUnique({
+    where: { userId_key: { userId, key } },
+  });
   if (!achievement) return;
 
-  const shouldUnlock =
-    progress >= achievement.target && !achievement.unlockedAt;
+  // Only update if progress increased (or new unlock).
+  if (progress <= achievement.progress && achievement.unlockedAt) return;
+
+  const shouldUnlock = progress >= achievement.target && !achievement.unlockedAt;
 
   await db.userAchievement.update({
-    where: { key },
+    where: { userId_key: { userId, key } },
     data: {
-      progress,
+      progress: Math.max(achievement.progress, Math.min(progress, achievement.target)),
       ...(shouldUnlock ? { unlockedAt: new Date() } : {}),
     },
   });
 }
 
-export async function GET(request: NextRequest) {
+/**
+ * POST /api/achievements/check
+ *
+ * Syncs the calling user's achievement progress with their actual activity
+ * (searches, views, favorites) and returns the updated achievement list.
+ *
+ * This was previously a GET — mutating on GET is a CORS/preflight footgun
+ * and lets browsers accidentally trigger writes via pre-fetch.
+ */
+export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
-    const rl = readLimiter(ip);
+    const rl = writeLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests();
     }
 
-    // Ensure achievements are seeded
-    const count = await db.userAchievement.count();
-    if (count === 0) {
-      for (const a of DEFAULT_ACHIEVEMENTS) {
-        await db.userAchievement.create({ data: a });
-      }
-    }
+    const userOrRes = await requireUser();
+    if (userOrRes instanceof NextResponse) return userOrRes;
+    const user = userOrRes;
 
-    // Sync progress from actual data
-    const searchCount = await db.searchHistory.count();
-    await syncProgress("first_search", searchCount);
+    // Ensure default achievement rows exist for this user.
+    await Promise.all(
+      DEFAULT_ACHIEVEMENTS.map((a) =>
+        db.userAchievement.upsert({
+          where: { userId_key: { userId: user.id, key: a.key } },
+          create: {
+            userId: user.id,
+            key: a.key,
+            title: a.title,
+            description: a.description,
+            icon: a.icon,
+            target: a.target,
+          },
+          update: {},
+        })
+      )
+    );
+
+    // Sync progress from actual data, scoped to this user.
+    const searchCount = await db.searchHistory.count({ where: { userId: user.id } });
+    await syncProgress(user.id, 'first_search', searchCount);
 
     const allViews = await db.viewHistory.findMany({
+      where: { userId: user.id },
       select: { beerId: true },
     });
     const distinctBeersViewed = new Set(allViews.map((v) => v.beerId)).size;
-    await syncProgress("beer_explorer", distinctBeersViewed);
-    await syncProgress("beer_guru", distinctBeersViewed);
+    await syncProgress(user.id, 'beer_explorer', distinctBeersViewed);
+    await syncProgress(user.id, 'beer_guru', distinctBeersViewed);
 
     const beerIds = [...new Set(allViews.map((v) => v.beerId))];
     const beers = beerIds.length > 0
@@ -64,39 +102,33 @@ export async function GET(request: NextRequest) {
         })
       : [];
     const distinctStyles = new Set(beers.map((b) => b.style)).size;
-    await syncProgress("style_taster", distinctStyles);
+    await syncProgress(user.id, 'style_taster', distinctStyles);
 
     const stoutCount = beers.filter((b) =>
-      b.style.toLowerCase().includes("stout")
+      b.style.toLowerCase().includes('stout')
     ).length;
-    await syncProgress("stout_lover", stoutCount);
+    await syncProgress(user.id, 'stout_lover', stoutCount);
 
-    const favoriteCount = await db.favorite.count();
-    await syncProgress("favorite_collector", favoriteCount);
+    const favoriteCount = await db.favorite.count({ where: { userId: user.id } });
+    await syncProgress(user.id, 'favorite_collector', favoriteCount);
 
-    const currentHour = new Date().getHours();
-    if (currentHour >= 23) {
-      const owl = await db.userAchievement.findUnique({
-        where: { key: "night_owl" },
-      });
-      if (owl && !owl.unlockedAt) {
-        await db.userAchievement.update({
-          where: { key: "night_owl" },
-          data: { progress: 1, unlockedAt: new Date() },
-        });
-      }
+    // night_owl: based on server-side UTC hour. We use getUTCHours() so the
+    // threshold is consistent regardless of which timezone the server runs in
+    // (23:00–04:00 UTC counts as "night"). This is server-side by design —
+    // the client's local clock would be user-spoofable.
+    const currentHour = new Date().getUTCHours();
+    if (currentHour >= 23 || currentHour < 4) {
+      await syncProgress(user.id, 'night_owl', 1);
     }
 
     const achievements = await db.userAchievement.findMany({
-      orderBy: { createdAt: "asc" },
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
     });
 
-    return NextResponse.json({ achievements });
+    return apiSuccess({ achievements });
   } catch (error) {
-    console.error("Error syncing achievements:", error);
-    return NextResponse.json(
-      { error: "Ошибка синхронизации достижений" },
-      { status: 500 }
-    );
+    console.error('Error syncing achievements:', error);
+    return apiInternalError('Ошибка синхронизации достижений');
   }
 }

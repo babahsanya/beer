@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
+import {
+  apiSuccess,
+  apiBadRequest,
+  apiNotFound,
+  apiTooManyRequests,
+  apiInternalError,
+  requireUser,
+} from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
@@ -10,7 +18,7 @@ export async function GET(
     const ip = getClientIp(request);
     const rl = readLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests();
     }
 
     const { id } = await params;
@@ -18,18 +26,13 @@ export async function GET(
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '10', 10), 1), 50);
     const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
 
-    // Validate id format to prevent injection
     if (typeof id !== 'string' || id.length > 100 || id.includes('/')) {
-      return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+      return apiBadRequest('Некорректный ID');
     }
 
-    // Verify beer exists
-    const beer = await db.beer.findUnique({ where: { id } });
+    const beer = await db.beer.findUnique({ where: { id }, select: { id: true } });
     if (!beer) {
-      return NextResponse.json(
-        { error: 'Пиво не найдено' },
-        { status: 404 }
-      );
+      return apiNotFound('Пиво не найдено');
     }
 
     const [reviews, total] = await Promise.all([
@@ -42,7 +45,7 @@ export async function GET(
       db.review.count({ where: { beerId: id } }),
     ]);
 
-    return NextResponse.json({
+    return apiSuccess({
       reviews,
       pagination: {
         total,
@@ -53,10 +56,7 @@ export async function GET(
     });
   } catch (error) {
     console.error('Reviews error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при загрузке отзывов' },
-      { status: 500 }
-    );
+    return apiInternalError('Ошибка при загрузке отзывов');
   }
 }
 
@@ -68,99 +68,90 @@ export async function POST(
     const ip = getClientIp(request);
     const rl = writeLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests();
     }
+
+    const userOrRes = await requireUser();
+    if (userOrRes instanceof NextResponse) return userOrRes;
+    const user = userOrRes;
 
     const { id } = await params;
 
-    // Validate id format
     if (typeof id !== 'string' || id.length > 100 || id.includes('/')) {
-      return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+      return apiBadRequest('Некорректный ID');
     }
 
-    // Verify beer exists
-    const beer = await db.beer.findUnique({ where: { id } });
+    const beer = await db.beer.findUnique({ where: { id }, select: { id: true } });
     if (!beer) {
-      return NextResponse.json(
-        { error: 'Пиво не найдено' },
-        { status: 404 }
-      );
+      return apiNotFound('Пиво не найдено');
     }
 
     const body = await request.json();
-    const { author, rating, comment } = body;
+    const { rating, comment } = body as Record<string, unknown>;
 
-    // Validate author: string, min 2 chars, max 50 chars, no HTML
-    if (!author || typeof author !== 'string' || author.trim().length < 2 || author.trim().length > 50) {
-      return NextResponse.json(
-        { error: 'Имя автора обязательно (2-50 символов)' },
-        { status: 400 }
-      );
-    }
+    // Author from session — never trust client for identity.
+    const safeAuthor = (user.name || user.email).slice(0, 50);
 
-    // SECURITY: Strip HTML/script tags from author
-    const safeAuthor = author.trim().replace(/[<>"'&]/g, '');
-
-    // Validate rating
     const ratingNum = Number(rating);
-    if (isNaN(ratingNum) || ratingNum < 0.5 || ratingNum > 5) {
-      return NextResponse.json(
-        { error: 'Оценка должна быть от 0.5 до 5' },
-        { status: 400 }
-      );
+    if (
+      isNaN(ratingNum) ||
+      ratingNum < 0.5 ||
+      ratingNum > 5 ||
+      ratingNum % 0.5 !== 0
+    ) {
+      return apiBadRequest('Оценка должна быть от 0.5 до 5 с шагом 0.5');
     }
 
-    // Validate comment: optional, max 500 chars, strip HTML
     const rawComment = typeof comment === 'string' ? comment : '';
     if (rawComment.length > 500) {
-      return NextResponse.json(
-        { error: 'Комментарий не должен превышать 500 символов' },
-        { status: 400 }
-      );
+      return apiBadRequest('Комментарий не должен превышать 500 символов');
     }
     const safeComment = rawComment.trim().replace(/[<>"'&]/g, '');
 
-    // SECURITY: Rate limit reviews per beer (max 5 reviews per beer per IP stored check)
+    // Cap total reviews per beer to keep the page snappy.
     const existingReviewCount = await db.review.count({ where: { beerId: id } });
     if (existingReviewCount >= 100) {
-      return NextResponse.json(
-        { error: 'Максимум отзывов для этого пива достигнут' },
-        { status: 429 }
-      );
+      return apiTooManyRequests('Максимум отзывов для этого пива достигнут');
     }
 
-    // Create review
-    const review = await db.review.create({
-      data: {
+    // Upsert by [beerId, userId] — one review per user per beer.
+    const review = await db.review.upsert({
+      where: { beerId_userId: { beerId: id, userId: user.id } },
+      create: {
         beerId: id,
+        userId: user.id,
+        author: safeAuthor,
+        rating: ratingNum,
+        comment: safeComment,
+      },
+      update: {
         author: safeAuthor,
         rating: ratingNum,
         comment: safeComment,
       },
     });
 
-    // Recalculate beer rating
-    const allReviews = await db.review.findMany({
+    // Recalculate beer rating via aggregate (no N+1, no full table scan).
+    const agg = await db.review.aggregate({
       where: { beerId: id },
-      select: { rating: true },
+      _avg: { rating: true },
+      _count: { rating: true },
     });
 
-    const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
+    const avgRating = agg._avg.rating ?? 0;
+    const ratingCount = agg._count.rating ?? 0;
 
     await db.beer.update({
       where: { id },
       data: {
         rating: Math.round(avgRating * 100) / 100,
-        ratingCount: allReviews.length,
+        ratingCount,
       },
     });
 
-    return NextResponse.json(review, { status: 201 });
+    return apiSuccess(review);
   } catch (error) {
     console.error('Create review error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при создании отзыва' },
-      { status: 500 }
-    );
+    return apiInternalError('Ошибка при создании отзыва');
   }
 }

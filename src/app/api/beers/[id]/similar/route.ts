@@ -56,7 +56,7 @@ export async function GET(
           const beerKeywords = extractStyleKeywords(beer.style);
           const overlap = styleKeywords.filter(k => beerKeywords.includes(k)).length;
           if (overlap > 0) {
-            candidates.push({ ...beer, _styleOverlap: overlap });
+            candidates.push(beer);
           }
           if (candidates.length >= 15) break;
         }
@@ -101,8 +101,7 @@ export async function GET(
         const breweryBonus = beer.brewery === currentBeer.brewery ? 0.15 : 0;
 
         const similarity = Math.min(0.99, Math.round((styleScore * 0.5 + abvScore * 0.35 + countryBonus + breweryBonus) * 100) / 100);
-        const { _styleOverlap, ...cleanBeer } = beer as Record<string, unknown> & { _styleOverlap?: number };
-        return { ...cleanBeer, similarity };
+        return { ...beer, similarity };
       })
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 5);

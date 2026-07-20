@@ -50,9 +50,9 @@ export async function GET(
       twitter: brewery.contact?.twitter || '',
       facebook: brewery.contact?.facebook || '',
       instagram: brewery.contact?.instagram || '',
-      type: (brewery as Record<string, unknown>).brewery_type || '',
-      rating: (brewery as Record<string, unknown>).rating_score || 0,
-      beerCount: (brewery as Record<string, unknown>).beer_count || 0,
+      type: brewery.brewery_type || '',
+      rating: brewery.rating_score || 0,
+      beerCount: brewery.beer_count || 0,
     });
   } catch (error) {
     console.error('Untappd brewery info error:', error);

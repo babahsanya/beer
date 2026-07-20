@@ -1,6 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { readLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit';
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { readLimiter, writeLimiter, getClientIp } from "@/lib/rate-limit";
+import {
+  apiSuccess,
+  apiTooManyRequests,
+  apiInternalError,
+  requireUser,
+} from "@/lib/api";
 
 function formatTimeAgo(date: Date): string {
   const now = new Date();
@@ -10,59 +16,80 @@ function formatTimeAgo(date: Date): string {
   const diffHours = Math.floor(diffMinutes / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffSeconds < 60) return 'только что';
+  if (diffSeconds < 60) return "только что";
   if (diffMinutes < 60) return `${diffMinutes} мин назад`;
   if (diffHours < 24) return `${diffHours} ч назад`;
   if (diffDays < 7) return `${diffDays} дн назад`;
-  return date.toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'short',
+  return date.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "short",
   });
 }
 
+/**
+ * GET /api/history — the 10 most recent search queries for the user.
+ */
 export async function GET(request: NextRequest) {
   try {
     const ip = getClientIp(request);
     const rl = readLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests(
+        "Слишком много запросов",
+        Math.ceil((rl.resetAt - Date.now()) / 1000),
+      );
     }
 
+    const userOrError = await requireUser();
+    if (userOrError instanceof NextResponse) return userOrError;
+    const user = userOrError;
+
     const history = await db.searchHistory.findMany({
-      orderBy: { createdAt: 'desc' },
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
       take: 10,
     });
 
     const formatted = history.map((entry) => ({
-      ...entry,
+      id: entry.id,
+      query: entry.query,
+      resultCount: entry.resultCount,
+      createdAt: entry.createdAt.toISOString(),
       timeAgo: formatTimeAgo(entry.createdAt),
     }));
 
-    return NextResponse.json({ history: formatted });
+    return apiSuccess({ history: formatted });
   } catch (error) {
-    console.error('History error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при загрузке истории' },
-      { status: 500 }
-    );
+    console.error("History error:", error);
+    return apiInternalError("Ошибка при загрузке истории");
   }
 }
 
+/**
+ * DELETE /api/history — clear all of the user's search history.
+ */
 export async function DELETE(request: NextRequest) {
   try {
     const ip = getClientIp(request);
     const rl = writeLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests(
+        "Слишком много запросов",
+        Math.ceil((rl.resetAt - Date.now()) / 1000),
+      );
     }
 
-    await db.searchHistory.deleteMany();
-    return NextResponse.json({ success: true, message: 'История очищена' });
+    const userOrError = await requireUser();
+    if (userOrError instanceof NextResponse) return userOrError;
+    const user = userOrError;
+
+    const result = await db.searchHistory.deleteMany({
+      where: { userId: user.id },
+    });
+
+    return apiSuccess({ deleted: result.count });
   } catch (error) {
-    console.error('History clear error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при очистке истории' },
-      { status: 500 }
-    );
+    console.error("History clear error:", error);
+    return apiInternalError("Ошибка при очистке истории");
   }
 }

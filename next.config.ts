@@ -47,11 +47,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
 
   // Включаем статический анализ на билде — НЕ подавлять ошибки типов.
-  // ⚠️ ВРЕМЕННО `true` — в коде есть legacy-ошибки типов (см. docs/AUDIT.md,
-  //    Этап 3 "Critical bugs"). После их исправления переключить на `false`.
-  //    Сейчас `false` сломает `next build` и заблокирует деплой.
+  // Stage 1+2 recovery: legacy TS errors fixed (seed.ts, similar/route.ts,
+  // map/route.ts, breweries/untappd/route.ts, achievements-view.tsx,
+  // data-manager.tsx, journal-view.tsx, page.tsx). Now strictly enforced.
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
 
   allowedDevOrigins: ["*.space-z.ai"],

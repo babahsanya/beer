@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { writeLimiter, getClientIp } from '@/lib/rate-limit';
+import {
+  apiSuccess,
+  apiError,
+  apiBadRequest,
+  apiTooManyRequests,
+  apiInternalError,
+  requireUser,
+} from '@/lib/api';
+
+// 5 MB hard limit on import payload. Checked before reading the body.
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 interface ExportData {
   version?: string;
@@ -50,190 +61,240 @@ interface ExportData {
   }>;
 }
 
+/**
+ * POST /api/import
+ *
+ * Restores a previously exported BeerID backup into the authenticated user's
+ * account. Hard-limited to 5 MB to keep the request body bounded. All writes
+ * are scoped to the calling user — userId is forced server-side and never
+ * read from the import payload.
+ *
+ * Concurrency model:
+ *  - favorites / viewHistory / achievements: `upsert` by compound unique key
+ *    (race-safe, idempotent — re-importing the same backup is a no-op).
+ *  - tastingJournal / searchHistory: `createMany` with `skipDuplicates`
+ *    (these tables have no natural compound key, so we rely on PK de-dup).
+ */
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
     const rl = writeLimiter(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+      return apiTooManyRequests();
     }
 
-    const raw = await request.text();
-    let data: ExportData;
+    const userOrRes = await requireUser();
+    if (userOrRes instanceof NextResponse) return userOrRes;
+    const user = userOrRes;
 
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      return NextResponse.json(
-        { error: 'Неверный формат JSON' },
-        { status: 400 }
+    // Hard 5MB limit — check Content-Length before we even read the body.
+    const contentLength = parseInt(
+      request.headers.get('content-length') || '0',
+      10,
+    );
+    if (contentLength > MAX_IMPORT_BYTES) {
+      return apiError(
+        `Файл слишком большой (максимум ${MAX_IMPORT_BYTES / 1024 / 1024} МБ)`,
+        'PAYLOAD_TOO_LARGE',
+        413,
       );
     }
 
+    const raw = await request.text();
+    // Double-check actual byte length — Content-Length is client-controlled
+    // and may be missing or lying.
+    if (Buffer.byteLength(raw) > MAX_IMPORT_BYTES) {
+      return apiError(
+        `Файл слишком большой (максимум ${MAX_IMPORT_BYTES / 1024 / 1024} МБ)`,
+        'PAYLOAD_TOO_LARGE',
+        413,
+      );
+    }
+
+    let data: ExportData;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return apiBadRequest('Неверный формат JSON');
+    }
+
     if (!data.version) {
-      return NextResponse.json(
-        { error: 'Файл не содержит версию. Убедитесь, что это корректный бэкап BeerID.' },
-        { status: 400 }
+      return apiBadRequest(
+        'Файл не содержит версию. Убедитесь, что это корректный бэкап BeerID.',
       );
     }
 
     const errors: string[] = [];
-    let importedFavorites = 0;
-    let importedTastings = 0;
-    let importedViewHistory = 0;
-    let importedSearchHistory = 0;
-    let importedAchievements = 0;
+    const skipped = {
+      favorites: 0,
+      tastings: 0,
+      viewHistory: 0,
+      searchHistory: 0,
+      achievements: 0,
+    };
+    const imported = {
+      favorites: 0,
+      tastings: 0,
+      viewHistory: 0,
+      searchHistory: 0,
+      achievements: 0,
+    };
 
     await db.$transaction(async (tx) => {
-      // --- Favorites: upsert by beerId ---
+      // --- Favorites: upsert by [userId, beerId] ---
       if (Array.isArray(data.favorites)) {
         for (const fav of data.favorites) {
           try {
-            if (!fav.beerId) continue;
-            // Check beer exists
+            if (!fav.beerId) {
+              skipped.favorites++;
+              continue;
+            }
             const beerExists = await tx.beer.findUnique({
               where: { id: fav.beerId },
               select: { id: true },
             });
             if (!beerExists) {
               errors.push(`Избранное: пиво ${fav.beerId} не найдено`);
+              skipped.favorites++;
               continue;
             }
-            // Upsert: avoid duplicate by beerId
-            const existing = await tx.favorite.findFirst({
-              where: { beerId: fav.beerId },
-            });
-            if (existing) continue; // skip duplicate
-
-            await tx.favorite.create({
-              data: {
+            await tx.favorite.upsert({
+              where: { userId_beerId: { userId: user.id, beerId: fav.beerId } },
+              create: {
+                userId: user.id,
                 beerId: fav.beerId,
                 createdAt: fav.createdAt ? new Date(fav.createdAt) : undefined,
               },
+              // Don't touch an existing favorite — import is idempotent.
+              update: {},
             });
-            importedFavorites++;
-          } catch (e) {
+            imported.favorites++;
+          } catch {
             errors.push(`Избранное: ошибка для beerId=${fav.beerId}`);
+            skipped.favorites++;
           }
         }
       }
 
-      // --- Tasting Journal: create (dedupe by beerName+createdAt) ---
+      // --- Tasting Journal: createMany with skipDuplicates ---
+      // No compound unique key on TastingEntry, so we lean on the PK and
+      // skipDuplicates to absorb re-imports of the same backup file.
       if (Array.isArray(data.tastingJournal)) {
-        for (const t of data.tastingJournal) {
-          try {
-            if (!t.beerName) continue;
-            const createdDate = t.createdAt ? new Date(t.createdAt) : new Date();
-            // Simple dedupe: check if a tasting with same beerName and very close timestamp exists
-            const existing = await tx.tastingEntry.findFirst({
-              where: {
-                beerName: t.beerName,
-                createdAt: {
-                  gte: new Date(createdDate.getTime() - 1000),
-                  lte: new Date(createdDate.getTime() + 1000),
-                },
-              },
-            });
-            if (existing) continue;
+        const validRecords = data.tastingJournal.filter((t) => {
+          if (!t.beerName) {
+            skipped.tastings++;
+            return false;
+          }
+          return true;
+        });
 
-            await tx.tastingEntry.create({
-              data: {
-                beerId: t.beerId || '',
-                beerName: t.beerName,
-                beerStyle: t.beerStyle || '',
-                brewery: t.brewery || '',
-                abv: t.abv ?? 0,
-                country: t.country || '',
-                personalRating: t.personalRating ?? 0,
-                aroma: t.aroma ?? 0,
-                taste: t.taste ?? 0,
-                appearance: t.appearance ?? 0,
-                mouthfeel: t.mouthfeel ?? 0,
-                comment: t.comment || '',
-                location: t.location || '',
-                glassType: t.glassType || '',
-                wouldBuyAgain: t.wouldBuyAgain ?? false,
-                createdAt: createdDate,
-                updatedAt: t.updatedAt ? new Date(t.updatedAt) : createdDate,
-              },
+        if (validRecords.length > 0) {
+          try {
+            const result = await tx.tastingEntry.createMany({
+              data: validRecords.map((t) => {
+                const createdDate = t.createdAt ? new Date(t.createdAt) : new Date();
+                return {
+                  userId: user.id,
+                  beerId: t.beerId || '',
+                  beerName: t.beerName,
+                  beerStyle: t.beerStyle || '',
+                  brewery: t.brewery || '',
+                  abv: t.abv ?? 0,
+                  country: t.country || '',
+                  personalRating: t.personalRating ?? 0,
+                  aroma: t.aroma ?? 0,
+                  taste: t.taste ?? 0,
+                  appearance: t.appearance ?? 0,
+                  mouthfeel: t.mouthfeel ?? 0,
+                  comment: t.comment || '',
+                  location: t.location || '',
+                  glassType: t.glassType || '',
+                  wouldBuyAgain: t.wouldBuyAgain ?? false,
+                  createdAt: createdDate,
+                  updatedAt: t.updatedAt ? new Date(t.updatedAt) : createdDate,
+                };
+              }),
+              skipDuplicates: true,
             });
-            importedTastings++;
-          } catch (e) {
-            errors.push(`Журнал: ошибка для "${t.beerName}"`);
+            imported.tastings += result.count;
+            skipped.tastings += validRecords.length - result.count;
+          } catch {
+            errors.push('Журнал дегустаций: ошибка массовой вставки');
+            skipped.tastings += validRecords.length;
           }
         }
       }
 
-      // --- View History: create (dedupe by beerId+createdAt within 1s) ---
+      // --- View History: upsert by [userId, beerId] ---
       if (Array.isArray(data.viewHistory)) {
         for (const v of data.viewHistory) {
           try {
-            if (!v.beerId) continue;
+            if (!v.beerId) {
+              skipped.viewHistory++;
+              continue;
+            }
             const createdDate = v.createdAt ? new Date(v.createdAt) : new Date();
-            const existing = await tx.viewHistory.findFirst({
-              where: {
-                beerId: v.beerId,
-                createdAt: {
-                  gte: new Date(createdDate.getTime() - 1000),
-                  lte: new Date(createdDate.getTime() + 1000),
-                },
-              },
-            });
-            if (existing) continue;
-
-            await tx.viewHistory.create({
-              data: {
+            await tx.viewHistory.upsert({
+              where: { userId_beerId: { userId: user.id, beerId: v.beerId } },
+              create: {
+                userId: user.id,
                 beerId: v.beerId,
                 beerName: v.beerName || '',
                 createdAt: createdDate,
               },
+              // Don't overwrite an existing record's timestamp on import.
+              update: {},
             });
-            importedViewHistory++;
-          } catch (e) {
+            imported.viewHistory++;
+          } catch {
             errors.push(`История просмотров: ошибка для beerId=${v.beerId}`);
+            skipped.viewHistory++;
           }
         }
       }
 
-      // --- Search History: create (dedupe by query+createdAt within 1s) ---
+      // --- Search History: createMany with skipDuplicates ---
       if (Array.isArray(data.searchHistory)) {
-        for (const s of data.searchHistory) {
-          try {
-            if (!s.query) continue;
-            const createdDate = s.createdAt ? new Date(s.createdAt) : new Date();
-            const existing = await tx.searchHistory.findFirst({
-              where: {
-                query: s.query,
-                createdAt: {
-                  gte: new Date(createdDate.getTime() - 1000),
-                  lte: new Date(createdDate.getTime() + 1000),
-                },
-              },
-            });
-            if (existing) continue;
+        const validRecords = data.searchHistory.filter((s) => {
+          if (!s.query) {
+            skipped.searchHistory++;
+            return false;
+          }
+          return true;
+        });
 
-            await tx.searchHistory.create({
-              data: {
+        if (validRecords.length > 0) {
+          try {
+            const result = await tx.searchHistory.createMany({
+              data: validRecords.map((s) => ({
+                userId: user.id,
                 query: s.query,
                 resultCount: s.resultCount ?? 0,
-                createdAt: createdDate,
-              },
+                createdAt: s.createdAt ? new Date(s.createdAt) : new Date(),
+              })),
+              skipDuplicates: true,
             });
-            importedSearchHistory++;
-          } catch (e) {
-            errors.push(`История поиска: ошибка для "${s.query}"`);
+            imported.searchHistory += result.count;
+            skipped.searchHistory += validRecords.length - result.count;
+          } catch {
+            errors.push('История поиска: ошибка массовой вставки');
+            skipped.searchHistory += validRecords.length;
           }
         }
       }
 
-      // --- Achievements: upsert by key ---
+      // --- Achievements: upsert by [userId, key] WITHOUT overwriting progress ---
       if (Array.isArray(data.achievements)) {
         for (const a of data.achievements) {
           try {
-            if (!a.key) continue;
+            if (!a.key) {
+              skipped.achievements++;
+              continue;
+            }
             await tx.userAchievement.upsert({
-              where: { key: a.key },
+              where: { userId_key: { userId: user.id, key: a.key } },
               create: {
+                userId: user.id,
                 key: a.key,
                 title: a.title || '',
                 description: a.description || '',
@@ -244,39 +305,21 @@ export async function POST(request: NextRequest) {
                 createdAt: a.createdAt ? new Date(a.createdAt) : undefined,
                 updatedAt: a.updatedAt ? new Date(a.updatedAt) : undefined,
               },
-              update: {
-                title: a.title || undefined,
-                description: a.description || undefined,
-                icon: a.icon || undefined,
-                progress: a.progress ?? undefined,
-                target: a.target ?? undefined,
-                unlockedAt: a.unlockedAt ? new Date(a.unlockedAt) : null,
-                updatedAt: a.updatedAt ? new Date(a.updatedAt) : new Date(),
-              },
+              // Intentionally empty — never overwrite existing progress.
+              update: {},
             });
-            importedAchievements++;
-          } catch (e) {
+            imported.achievements++;
+          } catch {
             errors.push(`Достижение: ошибка для key="${a.key}"`);
+            skipped.achievements++;
           }
         }
       }
     });
 
-    return NextResponse.json({
-      imported: {
-        favorites: importedFavorites,
-        tastings: importedTastings,
-        viewHistory: importedViewHistory,
-        searchHistory: importedSearchHistory,
-        achievements: importedAchievements,
-      },
-      errors,
-    });
+    return apiSuccess({ imported, skipped, errors });
   } catch (error) {
     console.error('Import error:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при импорте данных' },
-      { status: 500 }
-    );
+    return apiInternalError('Ошибка при импорте данных');
   }
 }

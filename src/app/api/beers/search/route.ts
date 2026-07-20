@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { searchLimiter, aiLimiter, getClientIp } from '@/lib/rate-limit';
+import { auth } from '@/lib/auth';
 import {
   searchBeersCached,
   normalizeUntappdBeers,
@@ -223,7 +224,7 @@ async function searchOnlineUntappd(
   try {
     const items = await searchBeersCached(qTrimmed, limit);
     if (items.length > 0) {
-      console.log(`[searchOnline] Untappd: ${items.length} results for "${qTrimmed}"`);
+      console.warn(`[searchOnline] Untappd: ${items.length} results for "${qTrimmed}"`);
       return normalizeUntappdBeers(items) as unknown as Array<Record<string, unknown>>;
     }
   } catch (err) {
@@ -374,8 +375,19 @@ export async function GET(request: NextRequest) {
       }
     ).length;
 
+    // Only record search history for authenticated users (Stage 2: SearchHistory
+    // became user-scoped, so anonymous searches can no longer be persisted).
     try {
-      await db.searchHistory.create({ data: { query: qTrimmed.slice(0, 200), resultCount: mergedBeers.length } });
+      const session = await auth();
+      if (session?.user?.id) {
+        await db.searchHistory.create({
+          data: {
+            userId: session.user.id,
+            query: qTrimmed.slice(0, 200),
+            resultCount: mergedBeers.length,
+          },
+        });
+      }
     } catch { /* non-fatal */ }
 
     return NextResponse.json({

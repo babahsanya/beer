@@ -603,12 +603,12 @@ export function JournalView() {
     try {
       const res = await fetch("/api/journal?limit=1000");
       if (res.ok) {
-        const data = await res.json();
-        const styles = [
+        const data = await res.json() as { entries?: Array<{ beerStyle?: string }> };
+        const styles: string[] = [
           ...new Set(
             (data.entries || [])
-              .map((e: TastingEntry) => e.beerStyle)
-              .filter(Boolean)
+              .map((e) => e.beerStyle)
+              .filter((s): s is string => typeof s === 'string' && s.length > 0)
           ),
         ].sort();
         setAvailableStyles(styles);

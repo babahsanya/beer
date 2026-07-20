@@ -190,10 +190,12 @@ export default function Home() {
         if (!res.ok) throw new Error("Ошибка поиска");
         const data = await res.json();
         // Strip internal _source field before passing to Beer type
-        const beers: Beer[] = (data.beers || []).map((b: Record<string, unknown>) => {
-          const { _source, ...rest } = b;
-          return rest as Beer;
-        });
+        const beers: Beer[] = ((data.beers || []) as Array<Beer & { _source?: string; _type?: string }>)
+          .map((b) => {
+            const { _source: _s, _type: _t, ...rest } = b;
+            void _s; void _t;
+            return rest;
+          });
         if (offset === 0) {
           setSearchResultsLocal(beers);
           setSearchSources(data.sources || []);
