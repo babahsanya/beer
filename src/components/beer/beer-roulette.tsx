@@ -54,12 +54,18 @@ export function BeerRoulette() {
   const { selectBeer } = useBeerStore();
   const wheelRef = useRef<SVGSVGElement>(null);
   const pulseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clean up interval on unmount
+  // Clean up all timers on unmount — pulse interval + spin completion timer
   useEffect(() => {
     return () => {
       if (pulseTimerRef.current) {
         clearInterval(pulseTimerRef.current);
+        pulseTimerRef.current = null;
+      }
+      if (spinTimeoutRef.current) {
+        clearTimeout(spinTimeoutRef.current);
+        spinTimeoutRef.current = null;
       }
     };
   }, []);
@@ -105,10 +111,12 @@ export function BeerRoulette() {
     setRotation(newRotation);
 
     // After spin completes (add 100ms buffer for CSS transition)
-    setTimeout(async () => {
+    spinTimeoutRef.current = setTimeout(async () => {
+      spinTimeoutRef.current = null;
       setWheelBlur(0);
       if (pulseTimerRef.current) {
         clearInterval(pulseTimerRef.current);
+        pulseTimerRef.current = null;
       }
       setIsPointerPulsing(false);
       setIsSpinning(false);

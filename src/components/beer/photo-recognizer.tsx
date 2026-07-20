@@ -281,7 +281,7 @@ export function PhotoRecognizer() {
             <Card
               key={match.beer.id}
               className="group cursor-pointer border-amber-200 dark:border-amber-900/50 bg-white dark:bg-stone-800 hover:border-amber-400 dark:hover:border-amber-600 transition-all duration-200"
-              onClick={() => selectBeer(match.beer as any)}
+              onClick={() => selectBeer(match.beer)}
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-3">

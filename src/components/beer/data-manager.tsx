@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Database, Download, Upload, AlertTriangle, Loader2, CheckCircle2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiPost, isUnauthorized, getErrorMessage, ApiError } from "@/lib/api-client";
 
 interface ImportPreview {
   version?: string;
@@ -163,21 +164,11 @@ export function DataManager() {
     if (!selectedFile) return;
     setImporting(true);
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-
-      const res = await fetch("/api/import", {
-        method: "POST",
-        body: selectedFile,
+      const result = await apiPost<ImportResult>("/api/import", undefined, {
+        body: await selectedFile.text(),
         headers: { "Content-Type": "application/json" },
       });
 
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Ошибка сервера");
-      }
-
-      const result: ImportResult = await res.json();
       const parts: string[] = [];
       if (result.imported.favorites > 0) parts.push(`${result.imported.favorites} избранных`);
       if (result.imported.tastings > 0) parts.push(`${result.imported.tastings} записей журнала`);
@@ -204,7 +195,11 @@ export function DataManager() {
     } catch (err) {
       toast({
         title: "Ошибка импорта",
-        description: err instanceof Error ? err.message : "Не удалось импортировать данные",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы импортировать данные"
+          : err instanceof ApiError
+            ? err.message
+            : getErrorMessage(err, "Не удалось импортировать данные"),
         variant: "destructive",
       });
     } finally {

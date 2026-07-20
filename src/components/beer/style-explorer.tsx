@@ -68,7 +68,7 @@ export function StyleExplorer({ onSearchStyle }: StyleExplorerProps) {
   return (
     <div className="space-y-8">
       {/* Style Progress Tracker */}
-      <StyleProgress />
+      <StyleProgress onSearchStyle={onSearchStyle} />
 
       {/* Existing Style Explorer */}
       <div className="space-y-4 dot-pattern-bg rounded-2xl p-1">

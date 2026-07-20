@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Dice5, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,6 +12,21 @@ export function RandomBeerButton() {
   const [showSlot, setShowSlot] = useState(false);
   const [slotText, setSlotText] = useState("");
   const { selectBeer } = useBeerStore();
+
+  // Track all timers so we can cancel them on unmount. Without this, a
+  // navigation mid-spin would leave dangling intervals/timeouts calling
+  // setState on an unmounted component.
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const revealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (revealTimeoutRef.current) clearTimeout(revealTimeoutRef.current);
+      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
+    };
+  }, []);
 
   const slotNames = [
     "Жигулёвское",
@@ -32,11 +47,14 @@ export function RandomBeerButton() {
     // Slot machine animation
     let tick = 0;
     const maxTicks = 12;
-    const interval = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       setSlotText(slotNames[tick % slotNames.length]);
       tick++;
       if (tick >= maxTicks) {
-        clearInterval(interval);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
       }
     }, 80);
 
@@ -45,21 +63,29 @@ export function RandomBeerButton() {
       if (res.ok) {
         const data: Beer & { reviewCount?: number } = await res.json();
         // Wait for animation to finish
-        setTimeout(() => {
+        revealTimeoutRef.current = setTimeout(() => {
+          revealTimeoutRef.current = null;
           setSlotText(data.name);
-          setTimeout(() => {
+          transitionTimeoutRef.current = setTimeout(() => {
+            transitionTimeoutRef.current = null;
             setShowSlot(false);
             setSpinning(false);
             selectBeer(data);
           }, 600);
         }, maxTicks * 80);
       } else {
-        clearInterval(interval);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
         setShowSlot(false);
         setSpinning(false);
       }
     } catch {
-      clearInterval(interval);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       setShowSlot(false);
       setSpinning(false);
     }

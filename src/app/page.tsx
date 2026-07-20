@@ -33,6 +33,7 @@ import { SettingsView } from "@/components/beer/settings-view";
 import { BreweryMap } from "@/components/beer/brewery-map";
 import QuizView from "@/components/beer/quiz-view";
 import { CalculatorView } from "@/components/beer/calculator-view";
+import { apiGet, isUnauthorized } from "@/lib/api-client";
 import { AchievementsView } from "@/components/beer/achievements-view";
 import { RecommendationsView } from "@/components/beer/recommendations-view";
 import { EnhancedStats } from "@/components/beer/enhanced-stats";
@@ -335,15 +336,14 @@ export default function Home() {
   const fetchRecentHistory = useCallback(async () => {
     try {
       setHistoryLoading(true);
-      const res = await fetch("/api/history");
-      if (res.ok) {
-        const data = await res.json();
-        setRecentHistory(
-          (Array.isArray(data.history) ? data.history : Array.isArray(data) ? data : []).slice(0, 5)
-        );
+      const data = await apiGet<{ history: SearchHistory[] } | SearchHistory[]>("/api/history");
+      const list = Array.isArray(data) ? data : (data.history ?? []);
+      setRecentHistory(list.slice(0, 5));
+    } catch (err) {
+      // 401 is fine — anonymous users have no history.
+      if (!isUnauthorized(err)) {
+        // ignore other errors
       }
-    } catch {
-      // ignore
     } finally {
       setHistoryLoading(false);
     }
@@ -352,12 +352,13 @@ export default function Home() {
   // Fetch recently viewed beers
   const fetchRecentViews = useCallback(async () => {
     try {
-      const res = await fetch("/api/recent");
-      if (res.ok) {
-        const data = await res.json();
-        setRecentViews(Array.isArray(data) ? data : []);
+      const data = await apiGet<Array<{ beerId: string; beer: Beer }>>("/api/recent");
+      setRecentViews(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (!isUnauthorized(err)) {
+        // ignore other errors
       }
-    } catch { /* ignore */ }
+    }
   }, []);
 
   useEffect(() => {

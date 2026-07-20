@@ -10,6 +10,7 @@ import { RatingStars } from "./rating-stars";
 import { Heart, Trash2 } from "lucide-react";
 import { useBeerStore } from "@/store/beer-store";
 import { useToast } from "@/hooks/use-toast";
+import { apiGet, apiDelete, isUnauthorized, getErrorMessage } from "@/lib/api-client";
 import Image from "next/image";
 import type { Favorite } from "@/types/beer";
 
@@ -22,12 +23,12 @@ export function FavoritesGrid() {
   const fetchFavorites = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/favorites");
-      if (!res.ok) throw new Error("Ошибка");
-      const data = await res.json();
+      const data = await apiGet<Favorite[]>("/api/favorites");
       setFavorites(Array.isArray(data) ? data : []);
-    } catch {
-      // ignore
+    } catch (err) {
+      if (!isUnauthorized(err)) {
+        // ignore other errors silently
+      }
     } finally {
       setLoading(false);
     }
@@ -40,13 +41,15 @@ export function FavoritesGrid() {
   const removeFavorite = async (e: React.MouseEvent, beerId: string) => {
     e.stopPropagation();
     try {
-      await fetch(`/api/favorites?beerId=${beerId}`, { method: "DELETE" });
+      await apiDelete(`/api/favorites?beerId=${beerId}`);
       setFavorites((prev) => prev.filter((f) => f.beerId !== beerId));
       toast({ title: "Удалено из избранного" });
-    } catch {
+    } catch (err) {
       toast({
         title: "Ошибка",
-        description: "Не удалось удалить",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы управлять избранным"
+          : getErrorMessage(err, "Не удалось удалить"),
         variant: "destructive",
       });
     }

@@ -121,11 +121,16 @@ function ProgressRing({ percentage, discovered, total }: { percentage: number; d
   );
 }
 
+interface StyleProgressProps {
+  onSearchStyle?: (styleName: string) => void;
+}
+
 // ── Main Component ───────────────────────────────────────────────────
-export function StyleProgress() {
+export function StyleProgress({ onSearchStyle }: StyleProgressProps) {
   const [data, setData] = useState<StyleProgressResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const setView = useBeerStore((s) => s.setView);
+  const setSearchQuery = useBeerStore((s) => s.setSearchQuery);
 
   useEffect(() => {
     async function fetchProgress() {
@@ -262,8 +267,14 @@ export function StyleProgress() {
                   ${style.discovered ? "" : "opacity-75"}
                 `}
                 onClick={() => {
-                  useBeerStore.getState().setSearchQuery(style.name);
-                  setView("search");
+                  // Trigger search if the parent provided a handler, otherwise
+                  // fall back to switching the view directly.
+                  if (onSearchStyle) {
+                    onSearchStyle(style.name);
+                  } else {
+                    setSearchQuery(style.name);
+                    setView("search");
+                  }
                 }}
               >
                 <CardContent className="relative z-[2] p-4 flex flex-col gap-2">

@@ -8,10 +8,33 @@ import { EmptyState } from "./empty-state";
 import { Clock, Trash2, Search } from "lucide-react";
 import { useBeerStore } from "@/store/beer-store";
 import { useToast } from "@/hooks/use-toast";
+import { apiGet, apiDelete, isUnauthorized, getErrorMessage } from "@/lib/api-client";
 import type { SearchHistory } from "@/types/beer";
 
 interface HistoryListProps {
   onSearch?: (query: string) => void;
+}
+
+// Pure helper — moved outside the component to keep the render stable.
+// Time-ago strings depend on the current timestamp, which differs between
+// server and client; we render the computed value with
+// `suppressHydrationWarning` to allow the client to take over.
+function formatTimeAgo(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return "только что";
+  if (diffMins < 60) return `${diffMins} мин назад`;
+  if (diffHours < 24) return `${diffHours} ч назад`;
+  return `${diffDays} дн назад`;
+}
+
+interface HistoryListResponse {
+  history: SearchHistory[];
 }
 
 export function HistoryList({ onSearch }: HistoryListProps) {
@@ -24,12 +47,14 @@ export function HistoryList({ onSearch }: HistoryListProps) {
   const fetchHistory = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/history");
-      if (!res.ok) throw new Error("Ошибка");
-      const data = await res.json();
-      setHistory(Array.isArray(data) ? data : []);
-    } catch {
-      // ignore
+      const data = await apiGet<HistoryListResponse | SearchHistory[]>("/api/history");
+      const list: SearchHistory[] = Array.isArray(data) ? data : (data.history ?? []);
+      setHistory(list);
+    } catch (err) {
+      if (isUnauthorized(err)) {
+        // anonymous user — no history; not an error
+      }
+      // otherwise silently ignore
     } finally {
       setLoading(false);
     }
@@ -42,13 +67,15 @@ export function HistoryList({ onSearch }: HistoryListProps) {
   const clearHistory = async () => {
     try {
       setClearing(true);
-      await fetch("/api/history", { method: "DELETE" });
+      await apiDelete("/api/history");
       setHistory([]);
       toast({ title: "История очищена" });
-    } catch {
+    } catch (err) {
       toast({
         title: "Ошибка",
-        description: "Не удалось очистить историю",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы управлять историей"
+          : getErrorMessage(err, "Не удалось очистить историю"),
         variant: "destructive",
       });
     } finally {
@@ -63,20 +90,6 @@ export function HistoryList({ onSearch }: HistoryListProps) {
     } else {
       setView("search");
     }
-  };
-
-  const formatTimeAgo = (dateStr: string) => {
-    const now = new Date();
-    const date = new Date(dateStr);
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return "только что";
-    if (diffMins < 60) return `${diffMins} мин назад`;
-    if (diffHours < 24) return `${diffHours} ч назад`;
-    return `${diffDays} дн назад`;
   };
 
   if (loading) {
@@ -139,7 +152,10 @@ export function HistoryList({ onSearch }: HistoryListProps) {
                   <p className="font-medium text-sm text-foreground truncate">
                     {item.query}
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p
+                    className="text-xs text-muted-foreground"
+                    suppressHydrationWarning
+                  >
                     {formatTimeAgo(item.createdAt)}
                   </p>
                 </div>

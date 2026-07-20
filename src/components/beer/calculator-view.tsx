@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -71,9 +71,14 @@ export function CalculatorView() {
   const [gender, setGender] = useState<"male" | "female">("male");
   const [weight, setWeight] = useState(80);
   const [hours, setHours] = useState(1);
-  const [drinks, setDrinks] = useState<Drink[]>([
-    { id: crypto.randomUUID(), abv: 5, volume: 500 },
-  ]);
+  const [drinks, setDrinks] = useState<Drink[]>([]);
+
+  // Seed initial drink on client only — avoids hydration mismatch
+  // because crypto.randomUUID() returns different values server-side vs client.
+  useEffect(() => {
+    setDrinks([{ id: crypto.randomUUID(), abv: 5, volume: 500 }]);
+  }, []);
+
   const [result, setResult] = useState<{
     bac: number;
     timeToSober: number;

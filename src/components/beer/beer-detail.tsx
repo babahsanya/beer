@@ -28,6 +28,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { getCountryFlag } from "@/lib/countries";
 import { getSRMColor } from "@/lib/srm-colors";
 import { useBeerStore } from "@/store/beer-store";
+import {
+  apiGet,
+  apiPost,
+  apiDelete,
+  isUnauthorized,
+  getErrorMessage,
+} from "@/lib/api-client";
 import { RatingStars } from "./rating-stars";
 import { BeerReviews } from "./beer-reviews";
 import { BeerStatsView } from "./beer-stats";
@@ -63,20 +70,14 @@ export function BeerDetail() {
       if (showRefresh) setRefreshing(true);
       else setLoading(true);
       try {
-        const res = await fetch(`/api/beers/${beer.id}`);
-        if (!res.ok) throw new Error("Ошибка загрузки");
-        const data: Beer = await res.json();
+        const data = await apiGet<Beer>(`/api/beers/${beer.id}`);
         useBeerStore.getState().selectBeer(data);
-        // Track view
-        fetch('/api/recent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ beerId: data.id, beerName: data.name }),
-        }).catch(() => {});
-      } catch {
+        // Track view (fire-and-forget, non-blocking)
+        apiPost('/api/recent', { beerId: data.id, beerName: data.name }).catch(() => {});
+      } catch (err) {
         toast({
           title: "Ошибка",
-          description: "Не удалось обновить данные",
+          description: getErrorMessage(err, "Не удалось обновить данные"),
           variant: "destructive",
         });
       } finally {
@@ -96,24 +97,26 @@ export function BeerDetail() {
 
   const toggleFavorite = async () => {
     if (!beer) return;
+    const prev = isFavorite;
     try {
-      if (isFavorite) {
-        await fetch(`/api/favorites?beerId=${beer.id}`, { method: "DELETE" });
+      if (prev) {
+        // Optimistic update — flip UI now, roll back on failure.
         setFavorite(false);
+        await apiDelete(`/api/favorites?beerId=${encodeURIComponent(beer.id)}`);
         toast({ title: "Удалено из избранного" });
       } else {
-        await fetch("/api/favorites", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ beerId: beer.id }),
-        });
         setFavorite(true);
+        await apiPost('/api/favorites', { beerId: beer.id });
         toast({ title: "Добавлено в избранное", description: beer.name });
       }
-    } catch {
+    } catch (err) {
+      // Roll back the optimistic flip on failure.
+      setFavorite(prev);
       toast({
         title: "Ошибка",
-        description: "Не удалось обновить избранное",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы сохранять избранное"
+          : getErrorMessage(err, "Не удалось обновить избранное"),
         variant: "destructive",
       });
     }
@@ -129,21 +132,21 @@ export function BeerDetail() {
     }
   };
 
-  // Check favorite status
+  // Check favorite status — uses the boolean endpoint to avoid loading
+  // the user's entire favorites list on every beer view.
   useEffect(() => {
     if (!beer?.id) return;
     const checkFav = async () => {
       try {
-        const res = await fetch("/api/favorites");
-        if (res.ok) {
-          const data = await res.json();
-          const fav = Array.isArray(data)
-            ? data.find((f: { beerId: string }) => f.beerId === beer.id)
-            : null;
-          setFavorite(!!fav);
+        const data = await apiGet<{ isFavorite: boolean }>(
+          '/api/favorites?beerId=' + encodeURIComponent(beer.id),
+        );
+        setFavorite(!!data.isFavorite);
+      } catch (err) {
+        // 401 means the user is anonymous — not an error, just not a favorite.
+        if (!isUnauthorized(err)) {
+          // ignore other errors
         }
-      } catch {
-        // ignore
       }
     };
     checkFav();

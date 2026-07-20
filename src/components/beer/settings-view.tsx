@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { DataManager } from "@/components/beer/data-manager";
 import { useToast } from "@/hooks/use-toast";
+import { apiDelete, isUnauthorized, getErrorMessage } from "@/lib/api-client";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -49,15 +50,17 @@ export function SettingsView() {
 
   const clearHistory = async () => {
     try {
-      await fetch("/api/history", { method: "DELETE" });
+      await apiDelete("/api/history");
       toast({
         title: "История очищена",
         description: "Все поисковые запросы удалены",
       });
-    } catch {
+    } catch (err) {
       toast({
         title: "Ошибка",
-        description: "Не удалось очистить историю",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы управлять историей"
+          : getErrorMessage(err, "Не удалось очистить историю"),
         variant: "destructive",
       });
     }
@@ -65,15 +68,17 @@ export function SettingsView() {
 
   const clearFavorites = async () => {
     try {
-      await fetch("/api/favorites?all=true", { method: "DELETE" });
+      await apiDelete("/api/favorites?all=true");
       toast({
         title: "Избранное очищено",
         description: "Все избранные сорта удалены",
       });
-    } catch {
+    } catch (err) {
       toast({
         title: "Ошибка",
-        description: "Не удалось очистить избранное",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы управлять избранным"
+          : getErrorMessage(err, "Не удалось очистить избранное"),
         variant: "destructive",
       });
     }
@@ -81,16 +86,18 @@ export function SettingsView() {
 
   const resetData = async () => {
     try {
-      await fetch("/api/favorites?all=true", { method: "DELETE" });
-      await fetch("/api/history", { method: "DELETE" });
+      await apiDelete("/api/favorites?all=true");
+      await apiDelete("/api/history");
       toast({
         title: "Данные сброшены",
         description: "История и избранное очищены",
       });
-    } catch {
+    } catch (err) {
       toast({
         title: "Ошибка",
-        description: "Не удалось сбросить данные",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы сбросить данные"
+          : getErrorMessage(err, "Не удалось сбросить данные"),
         variant: "destructive",
       });
     }

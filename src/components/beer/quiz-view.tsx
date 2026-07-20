@@ -96,7 +96,8 @@ type QuizAction =
   | { type: 'TIMEOUT' }
   | { type: 'ADVANCE' }
   | { type: 'SHOW_FEEDBACK'; correct: boolean; points: number; isTimeout: boolean }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'SET_BEST_SCORE'; score: number | null };
 
 function quizReducer(state: QuizState, action: QuizAction): QuizState {
   switch (action.type) {
@@ -194,6 +195,9 @@ function quizReducer(state: QuizState, action: QuizAction): QuizState {
         showFeedback: false,
       };
 
+    case 'SET_BEST_SCORE':
+      return { ...state, bestScore: action.score };
+
     default:
       return state;
   }
@@ -211,7 +215,10 @@ export default function QuizView() {
     selectedIdx: null,
     isAnswered: false,
     timeLeft: TIMER_SECONDS,
-    bestScore: loadBestScore(),
+    // Initial value is null on both server and client — `loadBestScore()` is
+    // dispatched from a useEffect so the SSR markup stays stable and React
+    // doesn't warn about a hydration mismatch on the best-score badge.
+    bestScore: null,
     lastPoints: 0,
     lastCorrect: false,
     lastTimeout: false,
@@ -277,6 +284,11 @@ export default function QuizView() {
       clearAdvanceTimeout();
     };
   }, [clearTimer, clearAdvanceTimeout]);
+
+  // Load best score on client only — keeps SSR output stable.
+  useEffect(() => {
+    dispatch({ type: 'SET_BEST_SCORE', score: loadBestScore() });
+  }, []);
 
   // ── Fetch questions ───────────────────────────────────────────────────────
 

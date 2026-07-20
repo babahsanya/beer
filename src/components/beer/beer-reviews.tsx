@@ -12,10 +12,36 @@ import { EmptyState } from "./empty-state";
 import { MessageSquare, Loader2, Star, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { apiGet, apiPost, isUnauthorized, getErrorMessage } from "@/lib/api-client";
 import type { Review } from "@/types/beer";
 
 interface BeerReviewsProps {
   beerId: string;
+}
+
+interface ReviewsResponse {
+  reviews: Review[];
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+}
+
+// Pure helper — moved outside the component so the render output is stable.
+// The computed time-ago depends on the current time, which differs between
+// SSR and CSR; we render the value with `suppressHydrationWarning` so the
+// client can take over without React throwing a mismatch.
+function formatTimeAgo(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  const diffMonths = Math.floor(diffDays / 30);
+
+  if (diffMins < 1) return "только что";
+  if (diffMins < 60) return `${diffMins} мин назад`;
+  if (diffHours < 24) return `${diffHours} ч назад`;
+  if (diffDays < 30) return `${diffDays} дн назад`;
+  return `${diffMonths} мес назад`;
 }
 
 export function BeerReviews({ beerId }: BeerReviewsProps) {
@@ -38,21 +64,20 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
 
   const fetchReviews = useCallback(async (newOffset: number, append: boolean) => {
     try {
-      const res = await fetch(
-        `/api/beers/${beerId}/reviews?limit=${limit}&offset=${newOffset}`
+      const data = await apiGet<ReviewsResponse>(
+        `/api/beers/${beerId}/reviews?limit=${limit}&offset=${newOffset}`,
       );
-      if (!res.ok) throw new Error("Ошибка загрузки");
-      const data = await res.json();
+      const list = data.reviews || [];
       if (append) {
-        setReviews((prev) => [...prev, ...(data.reviews || [])]);
+        setReviews((prev) => [...prev, ...list]);
       } else {
-        setReviews(data.reviews || []);
+        setReviews(list);
       }
-      setTotal(data.pagination?.total || data.total || 0);
-      setOffset(newOffset + (data.reviews?.length || 0));
+      setTotal(data.pagination?.total || 0);
+      setOffset(newOffset + list.length);
       setError(null);
-    } catch {
-      setError("Не удалось загрузить отзывы");
+    } catch (err) {
+      setError(getErrorMessage(err, "Не удалось загрузить отзывы"));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -88,22 +113,10 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
 
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/beers/${beerId}/reviews`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          author: author.trim(),
-          rating,
-          comment: comment.trim(),
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Ошибка при отправке");
-      }
-
-      const newReview: Review = await res.json();
+      const newReview = await apiPost<Review>(
+        `/api/beers/${beerId}/reviews`,
+        { author: author.trim(), rating, comment: comment.trim() },
+      );
 
       // Add the new review to the top of the list
       setReviews((prev) => [newReview, ...prev]);
@@ -121,27 +134,13 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
       });
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : "Ошибка при отправке отзыва"
+        isUnauthorized(err)
+          ? "Войдите, чтобы оставить отзыв"
+          : getErrorMessage(err, "Ошибка при отправке отзыва"),
       );
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const formatTimeAgo = (dateStr: string) => {
-    const now = new Date();
-    const date = new Date(dateStr);
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffMonths = Math.floor(diffDays / 30);
-
-    if (diffMins < 1) return "только что";
-    if (diffMins < 60) return `${diffMins} мин назад`;
-    if (diffHours < 24) return `${diffHours} ч назад`;
-    if (diffDays < 30) return `${diffDays} дн назад`;
-    return `${diffMonths} мес назад`;
   };
 
   if (loading) {
@@ -368,7 +367,10 @@ export function BeerReviews({ beerId }: BeerReviewsProps) {
                         <span className="font-medium text-sm text-foreground">
                           {review.author || "Аноним"}
                         </span>
-                        <span className="text-xs text-muted-foreground shrink-0">
+                        <span
+                          className="text-xs text-muted-foreground shrink-0"
+                          suppressHydrationWarning
+                        >
                           {formatTimeAgo(review.createdAt)}
                         </span>
                       </div>

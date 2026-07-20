@@ -30,7 +30,7 @@ interface BeerStore {
   setView: (view: AppView) => void;
   goBack: () => void;
   goHome: () => void;
-  selectBeer: (beer: Beer) => void;
+  selectBeer: (beer: Partial<Beer>) => void;
   clearBeer: () => void;
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: Beer[], total: number) => void;
@@ -77,7 +77,29 @@ export const useBeerStore = create<BeerStore>((set, get) => ({
   goHome: () =>
     set({ currentView: "home", previousView: null, selectedBeer: null }),
 
-  selectBeer: (beer) => set({ selectedBeer: beer, currentView: "detail" }),
+  selectBeer: (beer) => set({
+    selectedBeer: {
+      id: beer.id ?? "",
+      name: beer.name ?? "",
+      style: beer.style ?? "Неизвестный стиль",
+      abv: beer.abv ?? 0,
+      ibu: beer.ibu ?? 0,
+      country: beer.country ?? "",
+      brewery: beer.brewery ?? "",
+      description: beer.description ?? "",
+      label: beer.label ?? "",
+      rating: beer.rating ?? 0,
+      ratingCount: beer.ratingCount ?? 0,
+      totalCheckins: beer.totalCheckins ?? 0,
+      monthlyCheckins: beer.monthlyCheckins ?? 0,
+      dailyCheckins: beer.dailyCheckins ?? 0,
+      source: beer.source ?? "unknown",
+      // Spread any extra fields the caller provided last so they win over
+      // the safe defaults above (e.g. untappdBid, lastUpdated if present).
+      ...beer,
+    } as Beer,
+    currentView: "detail",
+  }),
 
   clearBeer: () => set({ selectedBeer: null }),
 

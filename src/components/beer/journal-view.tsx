@@ -44,6 +44,14 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { EmptyState } from "./empty-state";
 import { RatingStars } from "./rating-stars";
+import {
+  apiGet,
+  apiPost,
+  apiPut,
+  apiDelete,
+  isUnauthorized,
+  getErrorMessage,
+} from "@/lib/api-client";
 
 // --- Types ---
 
@@ -345,30 +353,22 @@ function EntryForm({
     setSaving(true);
     try {
       const url = isEdit ? `/api/journal/${entry!.id}` : "/api/journal";
-      const method = isEdit ? "PUT" : "POST";
+      const payload = await (isEdit
+        ? apiPut<{ entry: TastingEntry }>(url, form)
+        : apiPost<{ entry: TastingEntry }>(url, form));
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Ошибка сохранения");
-      }
-
-      const data = await res.json();
       toast({
         title: isEdit ? "Запись обновлена" : "Запись добавлена",
         description: form.beerName,
       });
-      onSaved(data.entry);
+      onSaved(payload.entry);
       onClose();
     } catch (err) {
       toast({
         title: "Ошибка",
-        description: err instanceof Error ? err.message : "Не удалось сохранить",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы сохранять записи"
+          : getErrorMessage(err, "Не удалось сохранить"),
         variant: "destructive",
       });
     } finally {
@@ -576,13 +576,12 @@ export function JournalView() {
           if (v) params.set(k, v);
         });
       }
-      const res = await fetch(`/api/journal?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setEntries(data.entries || []);
+      const data = await apiGet<{ entries: TastingEntry[] }>(`/api/journal?${params.toString()}`);
+      setEntries(data.entries || []);
+    } catch (err) {
+      if (!isUnauthorized(err)) {
+        // silently ignore other errors
       }
-    } catch {
-      // ignore
     } finally {
       setLoading(false);
     }
@@ -590,31 +589,30 @@ export function JournalView() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch("/api/journal/stats");
-      if (res.ok) {
-        setStats(await res.json());
+      const data = await apiGet<JournalStats>("/api/journal/stats");
+      setStats(data);
+    } catch (err) {
+      if (!isUnauthorized(err)) {
+        // silently ignore
       }
-    } catch {
-      // ignore
     }
   }, []);
 
   const fetchStyles = useCallback(async () => {
     try {
-      const res = await fetch("/api/journal?limit=1000");
-      if (res.ok) {
-        const data = await res.json() as { entries?: Array<{ beerStyle?: string }> };
-        const styles: string[] = [
-          ...new Set(
-            (data.entries || [])
-              .map((e) => e.beerStyle)
-              .filter((s): s is string => typeof s === 'string' && s.length > 0)
-          ),
-        ].sort();
-        setAvailableStyles(styles);
+      const data = await apiGet<{ entries: Array<{ beerStyle?: string }> }>("/api/journal?limit=1000");
+      const styles: string[] = [
+        ...new Set(
+          (data.entries || [])
+            .map((e) => e.beerStyle)
+            .filter((s): s is string => typeof s === 'string' && s.length > 0)
+        ),
+      ].sort();
+      setAvailableStyles(styles);
+    } catch (err) {
+      if (!isUnauthorized(err)) {
+        // silently ignore
       }
-    } catch {
-      // ignore
     }
   }, []);
 
@@ -639,15 +637,17 @@ export function JournalView() {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`/api/journal/${id}`, { method: "DELETE" });
+      await apiDelete(`/api/journal/${id}`);
       setEntries((prev) => prev.filter((e) => e.id !== id));
       fetchStats();
       fetchStyles();
       toast({ title: "Запись удалена" });
-    } catch {
+    } catch (err) {
       toast({
         title: "Ошибка",
-        description: "Не удалось удалить запись",
+        description: isUnauthorized(err)
+          ? "Войдите, чтобы управлять записями"
+          : getErrorMessage(err, "Не удалось удалить запись"),
         variant: "destructive",
       });
     }

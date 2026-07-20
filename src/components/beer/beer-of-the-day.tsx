@@ -20,6 +20,16 @@ interface BeerOfTheDayProps {
 export function BeerOfTheDay({ onSelect }: BeerOfTheDayProps) {
   const [beer, setBeer] = useState<Beer | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dateStr, setDateStr] = useState<string>("");
+
+  useEffect(() => {
+    setDateStr(
+      new Date().toLocaleDateString("ru-RU", {
+        day: "numeric",
+        month: "long",
+      }),
+    );
+  }, []);
 
   useEffect(() => {
     async function fetchBeerOfTheDay() {
@@ -116,10 +126,7 @@ export function BeerOfTheDay({ onSelect }: BeerOfTheDayProps) {
             variant="secondary"
             className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 text-[10px] px-2"
           >
-            {new Date().toLocaleDateString("ru-RU", {
-              day: "numeric",
-              month: "long",
-            })}
+            {dateStr}
           </Badge>
         </div>
 

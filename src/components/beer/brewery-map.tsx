@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -308,6 +308,40 @@ export function BreweryMap({ onNavigateToBeer }: BreweryMapProps) {
     setHoveredPos(null);
   }, []);
 
+  // Connection lines between nearby breweries — O(N²) over breweries. Memoized
+  // so we don't recompute on every hover state change (hoveredId/Pos update
+  // on every mouse move, but breweries only change on fetch).
+  const connectionLines = useMemo(() => {
+    const lines: Array<{ key: string; x1: number; y1: number; x2: number; y2: number }> = [];
+    for (let i = 0; i < breweries.length; i++) {
+      const b = breweries[i];
+      const svgPos = toSvg(b.lat, b.lng);
+      const nearby: typeof breweries = [];
+      for (let j = i + 1; j < breweries.length; j++) {
+        const other = breweries[j];
+        const otherPos = toSvg(other.lat, other.lng);
+        const dist = Math.sqrt(
+          (svgPos.x - otherPos.x) ** 2 + (svgPos.y - otherPos.y) ** 2,
+        );
+        if (dist < 80) {
+          nearby.push(other);
+          if (nearby.length >= 2) break;
+        }
+      }
+      for (const other of nearby) {
+        const otherPos = toSvg(other.lat, other.lng);
+        lines.push({
+          key: `line-${b.id}-${other.id}`,
+          x1: svgPos.x,
+          y1: svgPos.y,
+          x2: otherPos.x,
+          y2: otherPos.y,
+        });
+      }
+    }
+    return lines;
+  }, [breweries]);
+
   // Stats
   const countryCount = new Set(breweries.map((b) => b.country)).size;
   const totalBeers = breweries.reduce((sum, b) => sum + b.beerCount, 0);
@@ -389,33 +423,19 @@ export function BreweryMap({ onNavigateToBeer }: BreweryMapProps) {
               ))}
 
               {/* Connection lines between nearby breweries (faint) */}
-              {breweries.map((b, i) => {
-                const svgPos = toSvg(b.lat, b.lng);
-                const nearby = breweries
-                  .filter((other, j) => {
-                    if (j <= i) return false;
-                    const otherPos = toSvg(other.lat, other.lng);
-                    const dist = Math.sqrt((svgPos.x - otherPos.x) ** 2 + (svgPos.y - otherPos.y) ** 2);
-                    return dist < 80;
-                  })
-                  .slice(0, 2);
-                return nearby.map((other) => {
-                  const otherPos = toSvg(other.lat, other.lng);
-                  return (
-                    <line
-                      key={`line-${b.id}-${other.id}`}
-                      x1={svgPos.x}
-                      y1={svgPos.y}
-                      x2={otherPos.x}
-                      y2={otherPos.y}
-                      stroke="#f59e0b"
-                      strokeWidth="0.5"
-                      opacity="0.12"
-                      strokeDasharray="4,4"
-                    />
-                  );
-                });
-              })}
+              {connectionLines.map((line) => (
+                <line
+                  key={line.key}
+                  x1={line.x1}
+                  y1={line.y1}
+                  x2={line.x2}
+                  y2={line.y2}
+                  stroke="#f59e0b"
+                  strokeWidth="0.5"
+                  opacity="0.12"
+                  strokeDasharray="4,4"
+                />
+              ))}
 
               {/* Brewery markers */}
               {breweries.map((brewery, index) => {

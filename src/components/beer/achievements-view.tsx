@@ -9,6 +9,11 @@ import { useBeerStore } from "@/store/beer-store";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Trophy, CheckCircle2 } from "lucide-react";
 import type { Achievement } from "@/types/beer";
+import { apiGet, apiPost, isUnauthorized } from "@/lib/api-client";
+
+interface AchievementsResponse {
+  achievements: Achievement[];
+}
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
@@ -46,12 +51,15 @@ export function AchievementsView() {
 
   const fetchAchievements = useCallback(async () => {
     try {
-      // Sync progress first
-      await fetch("/api/achievements/check");
+      // Sync progress first (was GET pre-Stage 2, now POST).
+      try {
+        await apiPost("/api/achievements/check");
+      } catch (err) {
+        // 401 is fine — anonymous user has no achievements to sync.
+        if (!isUnauthorized(err)) throw err;
+      }
       // Then fetch all
-      const res = await fetch("/api/achievements");
-      if (!res.ok) throw new Error("Fetch failed");
-      const data = await res.json();
+      const data = await apiGet<AchievementsResponse>("/api/achievements");
       setAchievements(data.achievements || []);
     } catch {
       // Silently fail
