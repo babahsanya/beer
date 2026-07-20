@@ -1,17 +1,68 @@
-:81 {
-	@transform_port_query {
-		query XTransformPort=*
+# ──────────────────────────────────────────────────────────────────────
+# BeerID — Caddy reverse proxy config
+#
+# До привязки домена используется :81 (HTTP) для локальной разработки.
+# Для production — заменить `:81` на реальный домен (например, beerid.example.com),
+# Caddy автоматически выпустит Let's Encrypt сертификат.
+#
+# ⚠️  Никогда не используйте `:81` в проде — только HTTPS.
+# ──────────────────────────────────────────────────────────────────────
+
+{$SITE_ADDRESS::81} {
+	# ── Compression ──────────────────────────────────────────────
+	encode zstd gzip
+
+	# ── Security headers ────────────────────────────────────────
+	header {
+		# HSTS — только при HTTPS. Для :81 можно оставить, браузер игнорирует на http.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		X-DNS-Prefetch-Control off
+		# Убираем Server и X-Powered-By из ответов Caddy
+		-Server
 	}
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
+	# ── Request body size limit (защита от OOM) ────────────────
+	request_body {
+		max_size 5MB
+	}
+
+	# ── Rate limiting ───────────────────────────────────────────
+	# Требует модуль caddy-ratelimit (https://github.com/mholt/caddy-ratelimit)
+	# Установка:
+	#   xcaddy build --with github.com/mholt/caddy-ratelimit
+	# или:
+	#   caddy add-module github.com/mholt/caddy-ratelimit
+	#
+	# После установки модуля раскомментировать блок ниже:
+	# rate_limit {
+	# 	zone /api/ 10r/s 50
+	# 	zone static 50r/s 100
+	# }
+
+	# ── Logging (structured JSON) ──────────────────────────────
+	log {
+		output file /var/log/caddy/beerid.log {
+			roll_size 100mb
+			roll_keep 10
+			roll_keep_for 720h
 		}
+		format json
 	}
 
+	# ── Static cache (immutable assets) ────────────────────────
+	@static {
+		path /_next/static/* /favicon.ico /robots.txt /logo.svg
+	}
+	handle @static {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy localhost:3000
+	}
+
+	# ── Reverse proxy to Next.js ────────────────────────────────
 	handle {
 		reverse_proxy localhost:3000 {
 			header_up Host {host}
@@ -21,3 +72,10 @@
 		}
 	}
 }
+
+# ──────────────────────────────────────────────────────────────────────
+# HTTP → HTTPS redirect (раскомментировать после привязки домена)
+# ──────────────────────────────────────────────────────────────────────
+# http://beerid.example.com {
+# 	redir https://beerid.example.com{uri} 301
+# }
