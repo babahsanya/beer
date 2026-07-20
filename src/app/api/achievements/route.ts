@@ -12,69 +12,9 @@ import {
   requireUser,
 } from "@/lib/api";
 import { formatZodErrors } from "@/lib/validation";
-
-/**
- * Default achievement catalogue. Kept inline for now — Stage 5 will extract
- * this into a dedicated module.
- */
-const DEFAULT_ACHIEVEMENTS = [
-  {
-    key: "first_search",
-    title: "Первый поиск",
-    description: "Выполните первый поиск",
-    icon: "🔍",
-    target: 1,
-  },
-  {
-    key: "beer_explorer",
-    title: "Исследователь",
-    description: "Просмотрите 10 разных сортов",
-    icon: "🌍",
-    target: 10,
-  },
-  {
-    key: "style_taster",
-    title: "Дегустатор",
-    description: "Попробуйте пиво 5 разных стилей",
-    icon: "🍺",
-    target: 5,
-  },
-  {
-    key: "favorite_collector",
-    title: "Коллекционер",
-    description: "Добавьте 5 пив в избранное",
-    icon: "❤️",
-    target: 5,
-  },
-  {
-    key: "quiz_master",
-    title: "Знаток",
-    description: "Наберите 8/10 в квизе",
-    icon: "🧠",
-    target: 1,
-  },
-  {
-    key: "night_owl",
-    title: "Ночная сова",
-    description: "Используйте приложение после 23:00",
-    icon: "🦉",
-    target: 1,
-  },
-  {
-    key: "beer_guru",
-    title: "Пивной гуру",
-    description: "Просмотрите все 35 сортов пива",
-    icon: "🏆",
-    target: 35,
-  },
-  {
-    key: "stout_lover",
-    title: "Любитель стаутов",
-    description: "Просмотрите 3 стаута",
-    icon: "🖤",
-    target: 3,
-  },
-] as const;
+// Stage 5: import shared DEFAULT_ACHIEVEMENTS (was duplicated inline here
+// and in achievements/check/route.ts — Stage 5 extracted to lib/achievements.ts)
+import { DEFAULT_ACHIEVEMENTS } from "@/lib/achievements";
 
 /**
  * GET /api/achievements — list the user's achievements.
