@@ -1,25 +1,29 @@
+import fs from "node:fs";
+import path from "node:path";
+
 /**
- * Structured logger.
+ * Structured logger — writes to BOTH stdout/stderr AND log files.
  *
- * Output:
- *   - In production: one JSON line per log entry, e.g.
- *     `{"level":"info","msg":"Started server","ctx":{"port":3000},"t":"..."}`
- *   - In development: colorized single-line output.
+ * Log files location: <project-root>/logs/
+ *   - beerid.log      — all levels (info, warn, error)
+ *   - beerid-error.log — only errors (for quick scanning)
  *
- * Usage:
- *   import { logger } from "@/lib/logger";
- *   logger.info("Started server", { port: 3000 });
- *   logger.error("DB connection failed", { error: String(err) });
- *
- * For request-scoped logging use `withLogger(ctx)`:
- *   const log = withLogger({ requestId, route: "/api/quiz" });
- *   log.info("Computed question");
+ * Files are appended to (not overwritten) so history is preserved across
+ * restarts. In production you'd want rotation (logrotate / winston-daily-rotate),
+ * but for dev this is fine.
  */
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 interface LogContext {
   [key: string]: unknown;
+}
+
+interface LogEntry {
+  level: LogLevel;
+  message: string;
+  ts: string;
+  ctx?: LogContext;
 }
 
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
@@ -29,104 +33,170 @@ const LEVEL_PRIORITY: Record<LogLevel, number> = {
   error: 40,
 };
 
-// Min level: warn in production, debug in development.
 const MIN_LEVEL: LogLevel =
-  process.env.NODE_ENV === "production" ? "warn" : "debug";
+  process.env.NODE_ENV === "production" && process.env.LOG_FORMAT !== "human"
+    ? "warn"
+    : "debug";
 
-// ANSI color codes for development output.
-const COLORS: Record<LogLevel, string> = {
-  debug: "\x1b[90m", // gray
-  info: "\x1b[36m",  // cyan
-  warn: "\x1b[33m",  // yellow
-  error: "\x1b[31m", // red
-};
-const RESET_COLOR = "\x1b[0m";
+const shouldLog = (level: LogLevel): boolean =>
+  LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[MIN_LEVEL];
 
-function shouldLog(level: LogLevel): boolean {
-  return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[MIN_LEVEL];
+// ─── Log file setup ────────────────────────────────────────────────────
+// Determine where to write logs:
+//   1. LOG_DIR env variable (explicit override — used by start scripts)
+//   2. <project-root>/logs/ (in dev — cwd is project root)
+//   3. .next/standalone/logs/ (in standalone prod — cwd is standalone dir)
+//   4. ./logs/ (last resort)
+function findLogsDir(): string {
+  // 1. Explicit env var
+  if (process.env.LOG_DIR) {
+    return process.env.LOG_DIR;
+  }
+  // 2. Try to find project root (where package.json with "name": "beerid" is)
+  let dir = process.cwd();
+  for (let i = 0; i < 10; i++) {
+    const pkgPath = path.join(dir, "package.json");
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+        if (pkg.name === "beerid") {
+          return path.join(dir, "logs");
+        }
+      } catch {
+        // Invalid package.json — keep walking
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // 3. Fallback to cwd/logs
+  return path.join(process.cwd(), "logs");
 }
 
-function formatContext(ctx: LogContext | undefined): string {
-  if (!ctx || Object.keys(ctx).length === 0) return "";
+const LOGS_DIR = findLogsDir();
+const ALL_LOG_FILE = path.join(LOGS_DIR, "beerid.log");
+const ERROR_LOG_FILE = path.join(LOGS_DIR, "beerid-error.log");
+
+let logsDirEnsured = false;
+function ensureLogsDir() {
+  if (logsDirEnsured) return;
   try {
-    return JSON.stringify(ctx);
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
+    logsDirEnsured = true;
   } catch {
-    return "[unserializable context]";
+    // If we can't create logs/ dir, just skip file logging — terminal still works
   }
 }
 
-function emit(level: LogLevel, msg: string, ctx: LogContext | undefined): void {
+function appendToFile(filePath: string, line: string) {
+  try {
+    ensureLogsDir();
+    fs.appendFileSync(filePath, line + "\n", { encoding: "utf-8" });
+  } catch {
+    // Ignore — logging should never crash the app
+  }
+}
+
+// ─── Formatting ────────────────────────────────────────────────────────
+
+function formatTerminal(level: LogLevel, message: string, ctx?: LogContext): string {
+  const colors: Record<LogLevel, string> = {
+    debug: "\x1b[90m",  // gray
+    info: "\x1b[36m",   // cyan
+    warn: "\x1b[33m",   // yellow
+    error: "\x1b[31m",  // red
+  };
+  const reset = "\x1b[0m";
+  const ts = new Date().toISOString();
+  const prefix = `${colors[level]}[${level.toUpperCase()}]${reset} ${ts}`;
+  const ctxStr = ctx && Object.keys(ctx).length > 0
+    ? ` ${JSON.stringify(ctx)}`
+    : "";
+  return `${prefix} ${message}${ctxStr}`;
+}
+
+function formatFile(level: LogLevel, message: string, ctx?: LogContext): string {
+  const ts = new Date().toISOString();
+  const ctxStr = ctx && Object.keys(ctx).length > 0
+    ? ` ${JSON.stringify(ctx)}`
+    : "";
+  return `${ts} [${level.toUpperCase()}] ${message}${ctxStr}`;
+}
+
+function formatJson(level: LogLevel, message: string, ctx?: LogContext): string {
+  const entry: LogEntry = {
+    level,
+    message,
+    ts: new Date().toISOString(),
+    ...(ctx && Object.keys(ctx).length > 0 ? { ctx } : {}),
+  };
+  return JSON.stringify(entry);
+}
+
+// ─── Core log function ────────────────────────────────────────────────
+
+function log(level: LogLevel, message: string, ctx?: LogContext): void {
   if (!shouldLog(level)) return;
 
-  const timestamp = new Date().toISOString();
+  const isProd =
+    process.env.NODE_ENV === "production" && process.env.LOG_FORMAT !== "human";
 
-  if (process.env.NODE_ENV === "production") {
-    // JSON line — easy to ingest with Loki / Datadog / etc.
-    const payload = JSON.stringify({
-      level,
-      msg,
-      ...(ctx && Object.keys(ctx).length > 0 ? { ctx } : {}),
-      t: timestamp,
-    });
-    // Use the matching console method so stack traces attach for error.
-    if (level === "error") console.error(payload);
-    else if (level === "warn") console.warn(payload);
-    else if (level === "info") console.info(payload);
-    else console.debug(payload);
-    return;
+  // 1. Terminal output
+  const terminalLine = isProd
+    ? formatJson(level, message, ctx)
+    : formatTerminal(level, message, ctx);
+  if (level === "error" || level === "warn") {
+    process.stderr.write(terminalLine + "\n");
+  } else {
+    process.stdout.write(terminalLine + "\n");
   }
 
-  // Development: colorized single-line output.
-  const ctxStr = formatContext(ctx);
-  const line = `${COLORS[level]}[${level.toUpperCase()}]${RESET_COLOR} ${timestamp} ${msg}${ctxStr ? ` ${ctxStr}` : ""}`;
-  if (level === "error") console.error(line);
-  else if (level === "warn") console.warn(line);
-  else if (level === "info") console.info(line);
-  else console.debug(line);
+  // 2. File output
+  const fileLine = isProd
+    ? formatJson(level, message, ctx)
+    : formatFile(level, message, ctx);
+  appendToFile(ALL_LOG_FILE, fileLine);
+
+  // 3. Error file — only errors, for quick scanning
+  if (level === "error") {
+    appendToFile(ERROR_LOG_FILE, fileLine);
+  }
 }
 
-export interface Logger {
-  debug: (msg: string, ctx?: LogContext) => void;
-  info: (msg: string, ctx?: LogContext) => void;
-  warn: (msg: string, ctx?: LogContext) => void;
-  error: (msg: string, ctx?: LogContext) => void;
-  /** Child logger that prepends its ctx to every log line. */
-  child: (ctx: LogContext) => Logger;
-}
+// ─── Public API ────────────────────────────────────────────────────────
 
-function makeLogger(parentCtx?: LogContext): Logger {
-  const merged = (extra?: LogContext): LogContext | undefined => {
-    if (!parentCtx && !extra) return undefined;
-    if (!parentCtx) return extra;
-    if (!extra) return parentCtx;
-    return { ...parentCtx, ...extra };
-  };
+export const logger = {
+  debug: (message: string, ctx?: LogContext) => log("debug", message, ctx),
+  info: (message: string, ctx?: LogContext) => log("info", message, ctx),
+  warn: (message: string, ctx?: LogContext) => log("warn", message, ctx),
+  error: (message: string, ctx?: LogContext) => log("error", message, ctx),
+};
+
+export function withLogger(baseCtx: LogContext) {
   return {
-    debug: (msg, ctx) => emit("debug", msg, merged(ctx)),
-    info: (msg, ctx) => emit("info", msg, merged(ctx)),
-    warn: (msg, ctx) => emit("warn", msg, merged(ctx)),
-    error: (msg, ctx) => emit("error", msg, merged(ctx)),
-    child: (ctx) => makeLogger(merged(ctx)),
+    debug: (message: string, ctx?: LogContext) =>
+      log("debug", message, { ...baseCtx, ...ctx }),
+    info: (message: string, ctx?: LogContext) =>
+      log("info", message, { ...baseCtx, ...ctx }),
+    warn: (message: string, ctx?: LogContext) =>
+      log("warn", message, { ...baseCtx, ...ctx }),
+    error: (message: string, ctx?: LogContext) =>
+      log("error", message, { ...baseCtx, ...ctx }),
   };
 }
 
-/** Root logger. Use directly or call `.child(ctx)` for request-scoped logs. */
-export const logger: Logger = makeLogger();
-
-/** Create a child logger with a pre-set context. Shorthand for `logger.child(ctx)`. */
-export function withLogger(ctx: LogContext): Logger {
-  return logger.child(ctx);
+export function generateRequestId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID().slice(0, 8);
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * Generate a short request ID for log correlation. Not cryptographically
- * strong — just enough entropy to correlate log lines across a single
- * request lifecycle.
- */
-export function generateRequestId(): string {
-  // 12 hex chars = 48 bits of entropy, sufficient for correlation.
-  return (
-    Date.now().toString(36) +
-    Math.random().toString(36).slice(2, 8)
-  ).slice(0, 12);
+export function getLogFilePaths() {
+  return {
+    all: ALL_LOG_FILE,
+    error: ERROR_LOG_FILE,
+    dir: LOGS_DIR,
+  };
 }

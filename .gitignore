@@ -75,3 +75,7 @@ db/*.db
 
 # Runtime PID files
 .zscripts/*.pid
+# Log files — runtime artifacts, don't commit
+# (logs/.gitignore itself IS committed to keep the directory)
+logs/*
+!logs/.gitignore
